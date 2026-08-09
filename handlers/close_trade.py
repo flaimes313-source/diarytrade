@@ -76,7 +76,60 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CloseTradeStates.waiting_result)
     await callback.answer()
 
-# Обновите функцию close_trade_final для использования trade_id из state
+@router.callback_query(CloseTradeStates.waiting_result)
+async def process_result(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(result=callback.data)
+    
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    emoji = "🟢" if callback.data == "profit" else "🔴" if callback.data == "loss" else "⚪"
+    result_text = "Прибыль" if callback.data == "profit" else "Убыток" if callback.data == "loss" else "Безубыток"
+    
+    await callback.message.answer(
+        f"{emoji} {result_text}\n\n"
+        f"Введите сумму в $\n\n"
+        f"Например: +58 или -22"
+    )
+    await state.set_state(CloseTradeStates.waiting_pnl)
+    await callback.answer()
+
+@router.message(CloseTradeStates.waiting_pnl)
+async def process_pnl(message: Message, state: FSMContext):
+    try:
+        pnl = float(message.text.replace(',', '.'))
+        await state.update_data(pnl=pnl)
+        
+        # Если убыток, спрашиваем причину
+        if pnl < 0:
+            await message.answer(
+                "❓ Почему получили убыток? Выберите причину:",
+                reply_markup=mistake_keyboard()
+            )
+            await state.set_state(CloseTradeStates.waiting_mistake)
+        else:
+            # Если прибыль или безубыток, пропускаем ошибку
+            await state.update_data(mistake=None)
+            await close_trade_final(message, state)
+            
+    except ValueError:
+        await message.answer("❌ Введите число (например: +58 или -22)")
+
+@router.callback_query(CloseTradeStates.waiting_mistake)
+async def process_mistake(callback: CallbackQuery, state: FSMContext):
+    mistake = None if callback.data == "no_mistake" else callback.data
+    await state.update_data(mistake=mistake)
+    
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    await close_trade_final(callback.message, state)
+    await callback.answer()
+
 async def close_trade_final(message: Message, state: FSMContext):
     data = await state.get_data()
     trade_id = data.get('trade_id')
@@ -93,6 +146,7 @@ async def close_trade_final(message: Message, state: FSMContext):
         await state.clear()
         return
     
+    # Сохраняем результат
     Database.close_trade(trade_id, data['result'], data['pnl'], data.get('mistake'))
     
     # Обновляем депозит
@@ -109,6 +163,7 @@ async def close_trade_final(message: Message, state: FSMContext):
         f"✅ Сделка #{trade.id} закрыта!\n\n"
         f"🪙 {trade.symbol}\n"
         f"📈 {trade.direction}\n"
+        f"💰 {trade.position_size}$\n"
         f"Результат: {emoji} {result_text}\n"
         f"PnL: {'+' if data['pnl'] > 0 else ''}{data['pnl']:.2f}$\n"
         f"Новый депозит: {new_deposit:.2f}$\n"

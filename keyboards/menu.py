@@ -109,6 +109,12 @@ def confirm_delete_menu(trade_id):
         ]
     ])
 
+def cancel_delete_menu():
+    """Кнопка отмены удаления"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_delete")]
+    ])
+
 # ============= ОБРАБОТЧИКИ КЛАВИАТУР =============
 
 @router.callback_query(F.data == "back_to_menu")
@@ -141,7 +147,11 @@ async def cancel_delete(callback: CallbackQuery):
 @router.callback_query(F.data == "reset_deposit_menu")
 async def reset_deposit_menu(callback: CallbackQuery):
     """Меню сброса депозита"""
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
     user_id = callback.from_user.id
     current_deposit = Database.get_current_deposit(user_id)
     open_trades = Database.get_open_trades(user_id)
@@ -164,4 +174,169 @@ async def reset_deposit_menu(callback: CallbackQuery):
         f"Вы уверены, что хотите продолжить?",
         reply_markup=confirm_reset_deposit_menu()
     )
+    await callback.answer()
+
+@router.callback_query(F.data == "confirm_reset_deposit")
+async def confirm_reset_deposit_callback(callback: CallbackQuery):
+    """Подтверждение сброса депозита (перенаправляет на ввод суммы)"""
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    await callback.message.answer(
+        "💰 Введите новый начальный депозит:\n\n"
+        "Пример: 1000\n\n"
+        "Или отправьте 0 чтобы обнулить депозит"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "cancel_reset_deposit")
+async def cancel_reset_deposit_callback(callback: CallbackQuery):
+    """Отмена сброса депозита"""
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await callback.message.answer(
+        "✅ Сброс депозита отменен",
+        reply_markup=main_menu()
+    )
+    await callback.answer()
+
+# ============= ОБРАБОТЧИКИ ДЛЯ ИСТОРИИ =============
+
+@router.callback_query(F.data.startswith("delete_trade_"))
+async def delete_trade_button(callback: CallbackQuery):
+    """Удаление сделки по кнопке корзины"""
+    trade_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    trade = Database.get_trade_by_id(trade_id)
+    
+    if not trade:
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await callback.message.answer(
+            f"❌ Сделка #{trade_id} не найдена",
+            reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
+    
+    if trade.user_id != user_id:
+        await callback.message.answer(
+            "⛔ Вы можете удалять только свои сделки!",
+            reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
+    
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
+    await callback.message.answer(
+        f"⚠️ Вы уверены, что хотите удалить сделку #{trade_id}?\n\n"
+        f"🪙 {trade.symbol}\n"
+        f"📈 {trade.direction}\n"
+        f"💰 {trade.position_size}$\n"
+        f"📅 {trade.date.strftime('%d.%m.%Y')}\n\n"
+        f"💵 Депозит на момент сделки: {trade.deposit}$\n\n"
+        f"Это действие нельзя отменить!",
+        reply_markup=confirm_delete_menu(trade_id)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("confirm_delete_"))
+async def confirm_delete(callback: CallbackQuery):
+    """Подтверждение удаления сделки"""
+    trade_id = int(callback.data.split("_")[2])
+    user_id = callback.from_user.id
+    
+    trade = Database.get_trade_by_id(trade_id)
+    
+    if not trade:
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await callback.message.answer(
+            f"❌ Сделка #{trade_id} не найдена",
+            reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
+    
+    if trade.user_id != user_id:
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        await callback.message.answer(
+            "⛔ Вы можете удалять только свои сделки!",
+            reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
+    
+    # Сохраняем информацию до удаления
+    symbol = trade.symbol
+    direction = trade.direction
+    position_size = trade.position_size
+    trade_date = trade.date.strftime('%d.%m.%Y')
+    deposit_before = Database.get_current_deposit(user_id)
+    
+    # Удаляем сделку
+    if Database.delete_trade(trade_id):
+        deposit_after = Database.get_current_deposit(user_id)
+        
+        try:
+            await callback.message.delete()
+        except:
+            pass
+        
+        await callback.message.answer(
+            f"✅ Сделка #{trade_id} удалена!\n\n"
+            f"🪙 {symbol} {direction}\n"
+            f"💰 {position_size}$\n"
+            f"📅 {trade_date}\n\n"
+            f"💵 Депозит: {deposit_before}$ → {deposit_after}$",
+            reply_markup=main_menu()
+        )
+    else:
+        await callback.message.answer(
+            f"❌ Ошибка при удалении сделки #{trade_id}",
+            reply_markup=main_menu()
+        )
+    
+    await callback.answer()
+
+# ============= ОБРАБОТЧИКИ ДЛЯ СТАТИСТИКИ =============
+
+@router.callback_query(F.data == "stats")
+async def stats_callback(callback: CallbackQuery):
+    """Обработчик кнопки статистики"""
+    from handlers.stats import show_stats
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await show_stats(callback.message, callback.from_user.id)
+    await callback.answer()
+
+# ============= ОБРАБОТЧИКИ ДЛЯ ЭКСПОРТА =============
+
+@router.callback_query(F.data == "export_excel")
+async def export_excel_callback(callback: CallbackQuery):
+    """Обработчик кнопки экспорта"""
+    from handlers.stats import export_excel
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await export_excel(callback.message, callback.from_user.id)
     await callback.answer()

@@ -4,7 +4,16 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.filters import Command
-from keyboards.menu import main_menu, add_trade_menu, direction_keyboard, result_keyboard, mistake_keyboard, deposit_menu, confirm_reset_deposit_menu
+from keyboards.menu import (
+    main_menu, 
+    add_trade_menu, 
+    direction_keyboard, 
+    result_keyboard, 
+    mistake_keyboard, 
+    deposit_menu, 
+    confirm_reset_deposit_menu,
+    open_trades_menu
+)
 from database.db import Database
 from config import SCREENSHOTS_DIR
 import os
@@ -30,7 +39,7 @@ class CloseTradeStates(StatesGroup):
 
 class DepositStates(StatesGroup):
     waiting_deposit_amount = State()
-    waiting_new_deposit = State()  # 👈 ДОБАВЛЯЕМ
+    waiting_new_deposit = State()
 
 # ============= ПРОВЕРКА И СОЗДАНИЕ ПАПКИ ДЛЯ СКРИНШОТОВ =============
 def ensure_screenshots_dir():
@@ -193,7 +202,10 @@ async def reset_deposit(message: Message):
 @router.callback_query(F.data == "confirm_reset_deposit")
 async def confirm_reset_deposit(callback: CallbackQuery, state: FSMContext):
     """Подтверждение сброса депозита"""
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.message.answer(
         "💰 Введите новый начальный депозит:\n\n"
         "Пример: 1000\n\n"
@@ -205,7 +217,10 @@ async def confirm_reset_deposit(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "cancel_reset_deposit")
 async def cancel_reset_deposit(callback: CallbackQuery):
     """Отмена сброса депозита"""
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.message.answer(
         "✅ Сброс депозита отменен",
         reply_markup=main_menu()
@@ -245,7 +260,10 @@ async def process_new_deposit(message: Message, state: FSMContext):
 # ============= ОБРАБОТЧИКИ ДЛЯ ДЕПОЗИТА =============
 @router.callback_query(F.data == "deposit_menu")
 async def deposit_menu_callback(callback: CallbackQuery):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     current_deposit = Database.get_current_deposit(callback.from_user.id)
     user = Database.get_or_create_user(callback.from_user.id)
     await callback.message.answer(
@@ -260,7 +278,10 @@ async def deposit_menu_callback(callback: CallbackQuery):
 
 @router.callback_query(F.data == "show_deposit")
 async def show_deposit(callback: CallbackQuery):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     user_id = callback.from_user.id
     user = Database.get_or_create_user(user_id)
     current = Database.get_current_deposit(user_id)
@@ -281,7 +302,10 @@ async def show_deposit(callback: CallbackQuery):
 
 @router.callback_query(F.data == "set_deposit")
 async def set_deposit_callback(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.message.answer(
         "💰 Введите сумму начального депозита:\n\n"
         "Пример: 1000"
@@ -314,9 +338,11 @@ async def process_deposit_amount(message: Message, state: FSMContext):
 # ============= ДОБАВЛЕНИЕ НОВОЙ СДЕЛКИ =============
 @router.callback_query(F.data == "new_trade")
 async def new_trade(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     
-    # Теперь можно открывать сколько угодно сделок
     await callback.message.answer(
         "➕ Новая сделка\n\n"
         "Введите монету (например: BTCUSDT):"
@@ -336,7 +362,10 @@ async def process_symbol(message: Message, state: FSMContext):
 @router.callback_query(AddTradeStates.waiting_direction)
 async def process_direction(callback: CallbackQuery, state: FSMContext):
     await state.update_data(direction=callback.data)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await callback.message.answer(
         "💰 Введите размер позиции в $ (например: 500):"
     )
@@ -395,7 +424,10 @@ async def process_confidence(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "skip_screenshot")
 async def skip_screenshot(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await save_trade(callback.message, state, callback.from_user.id)
     await callback.answer()
 
@@ -547,9 +579,11 @@ async def close_trade_menu(callback: CallbackQuery, state: FSMContext):
         return
     
     if len(open_trades) == 1:
-        # Если одна сделка - сразу закрываем
         trade = open_trades[0]
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except:
+            pass
         await callback.message.answer(
             f"📊 Закрытие сделки #{trade.id}\n\n"
             f"🪙 {trade.symbol}\n"
@@ -561,13 +595,14 @@ async def close_trade_menu(callback: CallbackQuery, state: FSMContext):
         await state.update_data(trade_id=trade.id)
         await state.set_state(CloseTradeStates.waiting_result)
     else:
-        # Если несколько - показываем список
-        await callback.message.delete()
+        try:
+            await callback.message.delete()
+        except:
+            pass
         text = f"📊 Выберите сделку для закрытия:\n\n"
         for trade in open_trades:
             text += f"#{trade.id} 🪙 {trade.symbol} 📈 {trade.direction} | 💰 {trade.position_size}$\n"
         
-        from keyboards.menu import open_trades_menu
         await callback.message.answer(
             text,
             reply_markup=open_trades_menu(open_trades)
@@ -588,7 +623,11 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    
     await callback.message.answer(
         f"📊 Закрытие сделки #{trade.id}\n\n"
         f"🪙 {trade.symbol}\n"
@@ -604,7 +643,10 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(CloseTradeStates.waiting_result)
 async def process_result(callback: CallbackQuery, state: FSMContext):
     await state.update_data(result=callback.data)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     
     emoji = "🟢" if callback.data == "profit" else "🔴" if callback.data == "loss" else "⚪"
     result_text = "Прибыль" if callback.data == "profit" else "Убыток" if callback.data == "loss" else "Безубыток"
@@ -623,14 +665,13 @@ async def process_pnl(message: Message, state: FSMContext):
         pnl = float(message.text.replace(',', '.'))
         await state.update_data(pnl=pnl)
         
-        # Если убыток, спрашиваем причину
         if pnl < 0:
             await message.answer(
-                "❓ Почему получили убыток?",
+                "❓ Почему получили убыток? Выберите причину:",
                 reply_markup=mistake_keyboard()
             )
+            await state.set_state(CloseTradeStates.waiting_mistake)
         else:
-            # Если прибыль или безубыток, пропускаем ошибку
             await state.update_data(mistake=None)
             await close_trade_final(message, state)
             
@@ -641,7 +682,10 @@ async def process_pnl(message: Message, state: FSMContext):
 async def process_mistake(callback: CallbackQuery, state: FSMContext):
     mistake = None if callback.data == "no_mistake" else callback.data
     await state.update_data(mistake=mistake)
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except:
+        pass
     await close_trade_final(callback.message, state)
     await callback.answer()
 
@@ -654,7 +698,6 @@ async def close_trade_final(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    # Закрываем сделку
     trade = Database.get_trade_by_id(trade_id)
     if not trade or trade.status != 'open':
         await message.answer("❌ Сделка уже закрыта или не найдена")
@@ -663,13 +706,11 @@ async def close_trade_final(message: Message, state: FSMContext):
     
     Database.close_trade(trade_id, data['result'], data['pnl'], data.get('mistake'))
     
-    # Обновляем депозит
     user_id = message.from_user.id
     current_deposit = Database.get_current_deposit(user_id)
     new_deposit = current_deposit + data['pnl']
     Database.update_deposit(user_id, new_deposit)
     
-    # Определяем эмодзи для результата
     emoji = "🟢" if data['result'] == "profit" else "🔴" if data['result'] == "loss" else "⚪"
     result_text = "Прибыль" if data['result'] == "profit" else "Убыток" if data['result'] == "loss" else "Безубыток"
     
@@ -677,6 +718,7 @@ async def close_trade_final(message: Message, state: FSMContext):
         f"✅ Сделка #{trade.id} закрыта!\n\n"
         f"🪙 {trade.symbol}\n"
         f"📈 {trade.direction}\n"
+        f"💰 {trade.position_size}$\n"
         f"Результат: {emoji} {result_text}\n"
         f"PnL: {'+' if data['pnl'] > 0 else ''}{data['pnl']:.2f}$\n"
         f"Новый депозит: {new_deposit:.2f}$\n"

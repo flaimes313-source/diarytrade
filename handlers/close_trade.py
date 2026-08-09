@@ -84,6 +84,7 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
     await state.set_state(CloseTradeStates.waiting_result)
     await callback.answer()
 
+# ============= ОСНОВНЫЕ ОБРАБОТЧИКИ ДЛЯ РЕЗУЛЬТАТОВ =============
 @router.callback_query(CloseTradeStates.waiting_result)
 async def process_result(callback: CallbackQuery, state: FSMContext):
     await state.update_data(result=callback.data)

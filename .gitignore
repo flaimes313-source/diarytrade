@@ -1,0 +1,44 @@
+# .gitignore (версия с сохранением данных)
+
+# Виртуальное окружение
+venv/
+
+# Секреты и конфиги
+.env
+config.local.py
+
+# Python кэш
+__pycache__/
+*.pyc
+*.pyo
+
+# База данных (НЕ ИГНОРИРУЕМ - сохраняем)
+# database/*.db
+# *.db
+
+# Логи
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Временные файлы
+*.tmp
+*.temp
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# Скриншоты (НЕ ИГНОРИРУЕМ - сохраняем)
+# data/screenshots/*.jpg
+
+# Excel файлы
+*.xlsx
+*.xls
+
+# Файлы отладки
+test_*.py
+debug_*.py

@@ -1,44 +1,98 @@
-# .gitignore (версия с сохранением данных)
+# .gitignore для Diarytreid
 
 # Виртуальное окружение
 venv/
+env/
+ENV/
+.venv/
 
 # Секреты и конфиги
 .env
+.env.local
+.env.production
 config.local.py
+*.secret
+*.token
 
 # Python кэш
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
 
 # База данных (НЕ ИГНОРИРУЕМ - сохраняем)
 # database/*.db
 # *.db
+# *.sqlite
 
 # Логи
 *.log
+logs/
+*.log.*
 
 # IDE
 .vscode/
 .idea/
 *.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # Временные файлы
 *.tmp
 *.temp
+*.bak
+*.backup
+*.cache
 
 # Системные файлы
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Скриншоты (НЕ ИГНОРИРУЕМ - сохраняем)
 # data/screenshots/*.jpg
+# data/screenshots/*.png
+# data/screenshots/*.jpeg
 
-# Excel файлы
-*.xlsx
-*.xls
+# Excel файлы (НЕ ИГНОРИРУЕМ - сохраняем)
+# *.xlsx
+# *.xls
 
 # Файлы отладки
 test_*.py
 debug_*.py
+check_*.py
+temp_*.py
+
+# Отчеты и экспорт
+*.html
+*.xml
+*.json
+*.csv
+
+# Файлы зависимостей (если генерируются)
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebooks (если используете)
+.ipynb_checkpoints/
+*.ipynb
+
+# PyCharm
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Файлы с экпортом из бота
+export_*.xlsx
+report_*.xlsx

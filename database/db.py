@@ -1,7 +1,7 @@
 # database/db.py
 from database.models import Session, Trade, User
 from datetime import datetime, timedelta
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, BIGINT
 import os
 
 class Database:

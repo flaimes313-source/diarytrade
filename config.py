@@ -12,6 +12,9 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///database/journal.db')
 
 # ============= TELEGRAM НАСТРОЙКИ =============
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+# ============= АДМИНИСТРАТОРЫ =============
+# Укажите ваш Telegram ID здесь или в .env
 ADMIN_IDS = []
 
 admin_ids_str = os.getenv('ADMIN_IDS', '')
@@ -20,6 +23,9 @@ if admin_ids_str:
         ADMIN_IDS = [int(x.strip()) for x in admin_ids_str.split(',') if x.strip()]
     except ValueError:
         ADMIN_IDS = []
+
+# Если ADMIN_IDS не задан в .env, можно указать здесь
+# ADMIN_IDS = [462035571]  # раскомментируйте и укажите ваш ID
 
 # ============= ПУТИ =============
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -1,331 +1,326 @@
 # handlers/admin.py
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import Router, F, Bot
+from aiogram.types import Message, CallbackQuery, FSInputFile, BufferedInputFile
 from aiogram.filters import Command
-from aiogram import Bot
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from config import ADMIN_IDS, BOT_TOKEN
 from database.db import Database
-
-# Создаем отдельный экземпляр бота для админ-функций
-admin_bot = Bot(token=BOT_TOKEN)
+from keyboards.menu import main_menu, admin_menu
+import os
+import tempfile
 
 router = Router()
+bot = Bot(token=BOT_TOKEN)
 
-# Декоратор для проверки прав админа
-def admin_only(func):
-    async def wrapper(message: Message, *args, **kwargs):
-        if message.from_user.id not in ADMIN_IDS:
-            await message.answer("⛔ Только для администраторов!")
-            return
-        return await func(message, *args, **kwargs)
-    return wrapper
+# ============= СОСТОЯНИЯ ДЛЯ РАССЫЛКИ =============
+class BroadcastStates(StatesGroup):
+    waiting_text = State()
+    waiting_photo = State()
+    waiting_confirm = State()
 
+# ============= ПРОВЕРКА АДМИНА =============
+def is_admin(user_id):
+    """Проверка, является ли пользователь администратором"""
+    return user_id in ADMIN_IDS
+
+# ============= ГЛАВНОЕ МЕНЮ АДМИНА =============
 @router.message(Command("admin"))
-@admin_only
 async def admin_panel(message: Message):
-    await message.answer(
-        "👑 Админ панель\n\n"
-        "Доступные команды:\n"
-        "/users - Список пользователей\n"
-        "/broadcast - Рассылка\n"
-        "/del 123 - Удалить сделку по ID (админ)\n"
-        "/mydel 123 - Удалить свою сделку по ID\n"
-        "/stats - Статистика\n"
-        "/export_all - Экспорт всех данных"
-    )
-
-@router.message(Command("users"))
-@admin_only
-async def list_users(message: Message):
-    users = Database.get_all_users()
-    if not users:
-        await message.answer("👥 Нет пользователей")
-        return
-    
-    text = f"👥 Всего пользователей: {len(users)}\n\n"
-    for user in users[:10]:
-        # Получаем количество сделок пользователя
-        trades = Database.get_all_trades(user.user_id)
-        text += f"🆔 {user.user_id} - Сделок: {len(trades)}\n"
-    
-    if len(users) > 10:
-        text += f"\n... и еще {len(users) - 10} пользователей"
-    
-    await message.answer(text)
-
-@router.message(Command("broadcast"))
-@admin_only
-async def broadcast(message: Message):
-    text = message.text.replace("/broadcast", "").strip()
-    if not text:
-        await message.answer(
-            "❌ Напишите текст для рассылки после команды\n\n"
-            "Пример:\n"
-            "/broadcast Привет! Обновление бота!"
-        )
-        return
-    
-    users = Database.get_all_users()
-    if not users:
-        await message.answer("❌ Нет пользователей для рассылки")
-        return
-    
-    # Отправляем подтверждение
-    await message.answer(f"⏳ Начинаю рассылку {len(users)} пользователям...")
-    
-    sent = 0
-    failed = 0
-    failed_users = []
-    
-    for user in users:
-        try:
-            await admin_bot.send_message(user.user_id, text)
-            sent += 1
-        except Exception as e:
-            failed += 1
-            failed_users.append(user.user_id)
-    
-    # Отправляем результат
-    result_text = (
-        f"✅ Рассылка завершена!\n\n"
-        f"📤 Отправлено: {sent}\n"
-        f"❌ Не доставлено: {failed}\n"
-        f"👥 Всего: {len(users)}"
-    )
-    
-    if failed_users:
-        result_text += f"\n\nНе доставлено пользователям:\n" + "\n".join([str(uid) for uid in failed_users[:5]])
-        if len(failed_users) > 5:
-            result_text += f"\n... и еще {len(failed_users) - 5}"
-    
-    await message.answer(result_text)
-
-# ============= УДАЛЕНИЕ СВОЕЙ СДЕЛКИ =============
-@router.message(Command("mydel"))
-async def delete_my_trade(message: Message):
-    """Удалить свою сделку по ID (только свои сделки)"""
+    """Админ панель"""
     user_id = message.from_user.id
     
-    # Парсим ID сделки из команды
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer(
-            "❌ Укажите ID сделки для удаления\n\n"
-            "Пример: /mydel 5\n\n"
-            "Чтобы узнать ID сделки, посмотрите в /history"
-        )
+    if not is_admin(user_id):
+        await message.answer("⛔ Только для администраторов!")
         return
     
-    try:
-        trade_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID должен быть числом")
-        return
-    
-    # Получаем сделку
-    trade = Database.get_trade_by_id(trade_id)
-    
-    if not trade:
-        await message.answer(f"❌ Сделка с ID {trade_id} не найдена")
-        return
-    
-    # Проверяем, что сделка принадлежит этому пользователю
-    if trade.user_id != user_id:
-        await message.answer("⛔ Вы можете удалять только свои сделки!")
-        return
-    
-    # Проверяем, что сделка открыта
-    if trade.status == 'closed':
-        await message.answer("❌ Нельзя удалить закрытую сделку")
-        return
-    
-    # Удаляем сделку
-    if Database.delete_trade(trade_id):
-        await message.answer(
-            f"✅ Сделка #{trade_id} удалена!\n\n"
-            f"🪙 {trade.symbol}\n"
-            f"📈 {trade.direction}\n"
-            f"💰 {trade.position_size}$\n"
-            f"📅 {trade.date.strftime('%d.%m.%Y')}\n"
-            f"Статус: 🟡 Открыта\n\n"
-            f"💡 Вы можете создать новую сделку через меню"
-        )
-    else:
-        await message.answer(f"❌ Ошибка при удалении сделки #{trade_id}")
-
-# ============= УДАЛЕНИЕ ЛЮБОЙ СДЕЛКИ (ТОЛЬКО АДМИН) =============
-@router.message(Command("del"))
-@admin_only
-async def delete_trade_admin(message: Message):
-    """Удалить любую сделку по ID (только для админов)"""
-    
-    # Парсим ID сделки из команды
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer(
-            "❌ Укажите ID сделки для удаления\n\n"
-            "Пример: /del 5"
-        )
-        return
-    
-    try:
-        trade_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID должен быть числом")
-        return
-    
-    # Получаем сделку
-    trade = Database.get_trade_by_id(trade_id)
-    
-    if not trade:
-        await message.answer(f"❌ Сделка с ID {trade_id} не найдена")
-        return
-    
-    # Сохраняем информацию о сделке для ответа
-    trade_info = (
-        f"🪙 {trade.symbol}\n"
-        f"📈 {trade.direction}\n"
-        f"💰 {trade.position_size}$\n"
-        f"📅 {trade.date.strftime('%d.%m.%Y')}\n"
-        f"👤 Пользователь: {trade.user_id}\n"
-        f"Статус: {'🟡 Открыта' if trade.status == 'open' else '🔴 Закрыта'}"
-    )
-    
-    if trade.status == 'closed':
-        trade_info += f"\nРезультат: {trade.result}\nPnL: {trade.pnl}$"
-    
-    # Подтверждение удаления
     await message.answer(
-        f"⚠️ Вы уверены, что хотите удалить сделку #{trade_id}?\n\n"
-        f"{trade_info}\n\n"
-        f"Для подтверждения отправьте:\n"
-        f"/del_confirm {trade_id}"
+        "👑 **Админ панель**\n\n"
+        "Выберите действие:",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
     )
 
-@router.message(Command("del_confirm"))
-@admin_only
-async def delete_trade_confirm(message: Message):
-    """Подтверждение удаления сделки"""
+@router.callback_query(F.data == "admin_panel")
+async def admin_panel_callback(callback: CallbackQuery):
+    """Админ панель (по кнопке)"""
+    user_id = callback.from_user.id
     
-    # Парсим ID сделки из команды
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer("❌ Укажите ID сделки")
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
         return
     
-    try:
-        trade_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID должен быть числом")
+    await callback.message.delete()
+    await callback.message.answer(
+        "👑 **Админ панель**\n\n"
+        "Выберите действие:",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+# ============= СПИСОК ПОЛЬЗОВАТЕЛЕЙ =============
+@router.callback_query(F.data == "admin_users")
+async def admin_users(callback: CallbackQuery):
+    """Список всех пользователей"""
+    user_id = callback.from_user.id
+    
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
         return
     
-    # Получаем сделку
-    trade = Database.get_trade_by_id(trade_id)
+    await callback.message.delete()
     
-    if not trade:
-        await message.answer(f"❌ Сделка с ID {trade_id} не найдена")
+    users = Database.get_all_users()
+    total_users = len(users)
+    
+    if total_users == 0:
+        await callback.message.answer("👥 Нет пользователей", reply_markup=admin_menu())
+        await callback.answer()
         return
     
-    # Удаляем сделку
-    if Database.delete_trade(trade_id):
-        await message.answer(
-            f"✅ Сделка #{trade_id} удалена админом!\n\n"
-            f"🪙 {trade.symbol}\n"
-            f"📈 {trade.direction}\n"
-            f"👤 Пользователь: {trade.user_id}"
+    text = f"👥 **Всего пользователей: {total_users}**\n\n"
+    
+    for i, user in enumerate(users[:20], 1):
+        trades = Database.get_all_trades(user.user_id)
+        stats = Database.get_stats(user.user_id)
+        text += (
+            f"{i}. 🆔 {user.user_id}\n"
+            f"   📊 Сделок: {len(trades)}\n"
+            f"   📈 Win Rate: {stats['win_rate']:.1f}%\n"
+            f"   💰 PnL: {'+' if stats['total_pnl'] > 0 else ''}{stats['total_pnl']:.2f}$\n\n"
+        )
+    
+    if total_users > 20:
+        text += f"... и еще {total_users - 20} пользователей"
+    
+    await callback.message.answer(text, reply_markup=admin_menu(), parse_mode="HTML")
+    await callback.answer()
+
+# ============= СТАТИСТИКА АДМИНА =============
+@router.callback_query(F.data == "admin_stats")
+async def admin_stats(callback: CallbackQuery):
+    """Общая статистика для админа"""
+    user_id = callback.from_user.id
+    
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
+        return
+    
+    await callback.message.delete()
+    
+    users = Database.get_all_users()
+    total_trades = 0
+    total_pnl = 0
+    total_wins = 0
+    total_losses = 0
+    
+    for user in users:
+        stats = Database.get_stats(user.user_id)
+        total_trades += stats['total']
+        total_pnl += stats['total_pnl']
+        total_wins += stats['wins']
+        total_losses += stats['losses']
+    
+    win_rate = (total_wins / (total_wins + total_losses) * 100) if (total_wins + total_losses) > 0 else 0
+    
+    text = (
+        f"📊 **Общая статистика**\n\n"
+        f"👥 Пользователей: {len(users)}\n"
+        f"📊 Всего сделок: {total_trades}\n"
+        f"🟢 Побед: {total_wins}\n"
+        f"🔴 Поражений: {total_losses}\n"
+        f"📈 Win Rate: {win_rate:.1f}%\n"
+        f"💰 Общий PnL: {'+' if total_pnl > 0 else ''}{total_pnl:.2f}$"
+    )
+    
+    await callback.message.answer(text, reply_markup=admin_menu(), parse_mode="HTML")
+    await callback.answer()
+
+# ============= НАЧАЛО РАССЫЛКИ =============
+@router.callback_query(F.data == "admin_broadcast")
+async def admin_broadcast_start(callback: CallbackQuery, state: FSMContext):
+    """Начало создания рассылки"""
+    user_id = callback.from_user.id
+    
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
+        return
+    
+    await callback.message.delete()
+    await callback.message.answer(
+        "📢 **Создание рассылки**\n\n"
+        "Введите текст для рассылки:\n"
+        "(Можно использовать HTML-разметку)\n\n"
+        "Пример:\n"
+        "<b>Привет!</b> Это тестовое сообщение.\n"
+        "<i>Текст курсивом</i>\n"
+        "<a href='https://example.com'>Ссылка</a>\n\n"
+        "Или отправьте /cancel для отмены",
+        parse_mode="HTML"
+    )
+    await state.set_state(BroadcastStates.waiting_text)
+    await callback.answer()
+
+@router.message(BroadcastStates.waiting_text)
+async def admin_broadcast_text(message: Message, state: FSMContext):
+    """Получение текста для рассылки"""
+    if message.text and message.text.lower() == "/cancel":
+        await message.answer("❌ Рассылка отменена", reply_markup=admin_menu())
+        await state.clear()
+        return
+    
+    # Сохраняем текст
+    await state.update_data(text=message.text or " ")
+    
+    await message.answer(
+        "📸 Теперь отправьте фото для рассылки\n\n"
+        "Или нажмите 'Пропустить' если фото не нужно",
+        reply_markup=broadcast_photo_skip_menu()
+    )
+    await state.set_state(BroadcastStates.waiting_photo)
+
+@router.callback_query(F.data == "broadcast_skip_photo")
+async def admin_broadcast_skip_photo(callback: CallbackQuery, state: FSMContext):
+    """Пропуск фото"""
+    await callback.message.delete()
+    await show_broadcast_confirm(callback.message, state, callback.from_user.id)
+    await callback.answer()
+
+@router.message(BroadcastStates.waiting_photo)
+async def admin_broadcast_photo(message: Message, state: FSMContext):
+    """Получение фото для рассылки"""
+    if message.photo:
+        # Сохраняем фото
+        photo = message.photo[-1]
+        file = await bot.get_file(photo.file_id)
+        
+        # Скачиваем во временную папку
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, f"broadcast_{message.from_user.id}.jpg")
+        await bot.download_file(file.file_path, file_path)
+        
+        await state.update_data(photo_path=file_path)
+        await state.update_data(photo_id=photo.file_id)
+        
+        await show_broadcast_confirm(message, state, message.from_user.id)
+    else:
+        await message.answer("❌ Пожалуйста, отправьте фото или нажмите 'Пропустить'")
+
+async def show_broadcast_confirm(message: Message, state: FSMContext, user_id: int):
+    """Показать подтверждение рассылки"""
+    data = await state.get_data()
+    text = data.get('text', '')
+    photo_id = data.get('photo_id')
+    photo_path = data.get('photo_path')
+    
+    # Показываем превью
+    if photo_id:
+        await message.answer_photo(
+            photo_id,
+            caption=f"📢 **Превью рассылки**\n\n{text}",
+            parse_mode="HTML",
+            reply_markup=broadcast_confirm_menu()
         )
     else:
-        await message.answer(f"❌ Ошибка при удалении сделки #{trade_id}")
-
-# ============= ЭКСПОРТ ВСЕХ ДАННЫХ (АДМИН) =============
-@router.message(Command("export_all"))
-@admin_only
-async def export_all_data(message: Message):
-    """Экспорт всех данных всех пользователей (только админ)"""
-    from services.export import ExportService
-    from aiogram.types import BufferedInputFile
+        await message.answer(
+            f"📢 **Превью рассылки**\n\n{text}",
+            parse_mode="HTML",
+            reply_markup=broadcast_confirm_menu()
+        )
     
-    await message.answer("⏳ Генерация полного отчета...")
+    await state.set_state(BroadcastStates.waiting_confirm)
+
+@router.callback_query(F.data == "broadcast_confirm")
+async def admin_broadcast_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение и отправка рассылки"""
+    user_id = callback.from_user.id
+    
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
+        return
+    
+    await callback.message.delete()
+    await callback.message.answer("⏳ Начинаю рассылку...")
+    
+    data = await state.get_data()
+    text = data.get('text', '')
+    photo_path = data.get('photo_path')
     
     # Получаем всех пользователей
     users = Database.get_all_users()
-    if not users:
-        await message.answer("❌ Нет пользователей")
-        return
-    
-    # Экспортируем данные каждого пользователя
-    # В реальности лучше сделать отдельный метод для экспорта всех данных
-    
-    text = "📊 Отчет по всем пользователям\n\n"
-    
-    total_trades = 0
-    total_pnl = 0
+    total = len(users)
+    sent = 0
+    failed = 0
     
     for user in users:
-        trades = Database.get_all_trades(user.user_id)
-        stats = Database.get_stats(user.user_id)
-        deposit = Database.get_current_deposit(user.user_id)
-        
-        if stats['total'] > 0:
-            text += (
-                f"👤 Пользователь: {user.user_id}\n"
-                f"   Сделок: {stats['total']}\n"
-                f"   Win Rate: {stats['win_rate']:.1f}%\n"
-                f"   PnL: {'+' if stats['total_pnl'] > 0 else ''}{stats['total_pnl']:.2f}$\n"
-                f"   Депозит: {deposit:.2f}$\n\n"
-            )
-            
-            total_trades += stats['total']
-            total_pnl += stats['total_pnl']
+        try:
+            if photo_path:
+                await bot.send_photo(
+                    user.user_id,
+                    photo_path,
+                    caption=text,
+                    parse_mode="HTML"
+                )
+            else:
+                await bot.send_message(
+                    user.user_id,
+                    text,
+                    parse_mode="HTML"
+                )
+            sent += 1
+        except Exception as e:
+            failed += 1
     
-    text += (
-        f"📊 ИТОГО:\n"
-        f"Всего пользователей: {len(users)}\n"
-        f"Всего сделок: {total_trades}\n"
-        f"Общий PnL: {'+' if total_pnl > 0 else ''}{total_pnl:.2f}$"
+    # Чистим временный файл
+    if photo_path and os.path.exists(photo_path):
+        os.remove(photo_path)
+    
+    await callback.message.answer(
+        f"✅ **Рассылка завершена!**\n\n"
+        f"📤 Отправлено: {sent}\n"
+        f"❌ Не доставлено: {failed}\n"
+        f"👥 Всего: {total}",
+        reply_markup=admin_menu(),
+        parse_mode="HTML"
     )
     
-    await message.answer(text, parse_mode="HTML")
+    await state.clear()
+    await callback.answer()
 
-# ============= СТАТИСТИКА ПОЛЬЗОВАТЕЛЯ (АДМИН) =============
-@router.message(Command("user_stats"))
-@admin_only
-async def user_stats(message: Message):
-    """Статистика конкретного пользователя (админ)"""
+@router.callback_query(F.data == "broadcast_cancel")
+async def admin_broadcast_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отмена рассылки"""
+    user_id = callback.from_user.id
     
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer(
-            "❌ Укажите ID пользователя\n\n"
-            "Пример: /user_stats 123456789"
-        )
+    if not is_admin(user_id):
+        await callback.answer("⛔ Только для администраторов!", show_alert=True)
         return
     
-    try:
-        user_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID должен быть числом")
-        return
+    data = await state.get_data()
+    photo_path = data.get('photo_path')
     
-    stats = Database.get_stats(user_id)
-    deposit = Database.get_current_deposit(user_id)
-    user = Database.get_or_create_user(user_id)
+    if photo_path and os.path.exists(photo_path):
+        os.remove(photo_path)
     
-    if stats['total'] == 0:
-        await message.answer(f"👤 Пользователь {user_id}\n\nНет сделок")
-        return
-    
-    text = (
-        f"👤 Статистика пользователя {user_id}\n\n"
-        f"📊 Статистика\n"
-        f"Всего сделок: {stats['total']}\n"
-        f"Побед: {stats['wins']}\n"
-        f"Поражений: {stats['losses']}\n"
-        f"Win Rate: {stats['win_rate']:.2f}%\n"
-        f"Общий PnL: {'+' if stats['total_pnl'] > 0 else ''}{stats['total_pnl']:.2f}$\n"
-        f"Начальный депозит: {user.initial_deposit:.2f}$\n"
-        f"Текущий депозит: {deposit:.2f}$\n"
-        f"Profit Factor: {stats['profit_factor']:.2f}"
-    )
-    
-    await message.answer(text)
+    await callback.message.delete()
+    await callback.message.answer("❌ Рассылка отменена", reply_markup=admin_menu())
+    await state.clear()
+    await callback.answer()
+
+# ============= ВСПОМОГАТЕЛЬНЫЕ КЛАВИАТУРЫ =============
+def broadcast_photo_skip_menu():
+    """Клавиатура для пропуска фото"""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Пропустить фото", callback_data="broadcast_skip_photo")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
+    ])
+
+def broadcast_confirm_menu():
+    """Клавиатура подтверждения рассылки"""
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
+    ])

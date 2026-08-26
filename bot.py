@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Регистрируем роутеры
+# Регистрируем все роутеры
 dp.include_routers(
     add_trade.router,
     close_trade.router,

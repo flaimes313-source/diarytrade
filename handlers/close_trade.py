@@ -86,44 +86,70 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(CloseTradeStates.waiting_result)
 async def process_result(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(result=callback.data)
+    result = callback.data
+    await state.update_data(result=result)
     
     try:
         await callback.message.delete()
     except:
         pass
     
-    emoji = "🟢" if callback.data == "profit" else "🔴" if callback.data == "loss" else "⚪"
-    result_text = "Прибыль" if callback.data == "profit" else "Убыток" if callback.data == "loss" else "Безубыток"
+    # 👇 Разные сообщения для разных результатов
+    if result == "profit":
+        await callback.message.answer(
+            "🟢 Прибыль\n\n"
+            "Введите сумму прибыли в $\n\n"
+            "Например: 58"
+        )
+        await state.set_state(CloseTradeStates.waiting_pnl)
+    elif result == "loss":
+        await callback.message.answer(
+            "🔴 Убыток\n\n"
+            "Введите сумму убытка в $\n\n"
+            "Например: 22"
+        )
+        await state.set_state(CloseTradeStates.waiting_pnl)
+    else:  # breakeven
+        await state.update_data(pnl=0)
+        await state.update_data(mistake=None)
+        await close_trade_final(callback.message, state)
     
-    await callback.message.answer(
-        f"{emoji} {result_text}\n\n"
-        f"Введите сумму в $\n\n"
-        f"Например: +58 или -22"
-    )
-    await state.set_state(CloseTradeStates.waiting_pnl)
     await callback.answer()
 
 @router.message(CloseTradeStates.waiting_pnl)
 async def process_pnl(message: Message, state: FSMContext):
+    data = await state.get_data()
+    result = data.get('result')
+    
     try:
-        pnl = float(message.text.replace(',', '.'))
+        amount = float(message.text.replace(',', '.'))
+        
+        # 👇 Если прибыль - оставляем как есть (положительное)
+        # 👇 Если убыток - делаем отрицательным
+        if result == "profit":
+            pnl = amount
+        elif result == "loss":
+            pnl = -amount
+        else:
+            pnl = 0
+        
         await state.update_data(pnl=pnl)
         
-        # Если убыток, спрашиваем причину
-        if pnl < 0:
+        print(f"📊 Результат: {result}, Сумма: {amount}, PnL: {pnl}")  # 👈 ОТЛАДКА
+        
+        # Если убыток - спрашиваем причину
+        if result == "loss":
             await message.answer(
                 "❓ Почему получили убыток? Выберите причину:",
                 reply_markup=mistake_keyboard()
             )
             await state.set_state(CloseTradeStates.waiting_mistake)
         else:
-            # Если прибыль или безубыток, пропускаем ошибку
             await state.update_data(mistake=None)
             await close_trade_final(message, state)
             
     except ValueError:
-        await message.answer("❌ Введите число (например: +58 или -22)")
+        await message.answer("❌ Введите число (например: 58 или 22)")
 
 @router.callback_query(CloseTradeStates.waiting_mistake)
 async def process_mistake(callback: CallbackQuery, state: FSMContext):
@@ -135,19 +161,25 @@ async def process_mistake(callback: CallbackQuery, state: FSMContext):
     except:
         pass
     
+    print(f"📊 Причина ошибки: {mistake}")  # 👈 ОТЛАДКА
     await close_trade_final(callback.message, state)
     await callback.answer()
 
 async def close_trade_final(message: Message, state: FSMContext):
     data = await state.get_data()
     trade_id = data.get('trade_id')
+    result = data.get('result')
+    pnl = data.get('pnl', 0)
+    mistake = data.get('mistake')
+    
+    print(f"📊 Закрытие: trade_id={trade_id}, result={result}, pnl={pnl}")  # 👈 ОТЛАДКА
     
     if not trade_id:
         await message.answer("❌ Ошибка: не найдена сделка для закрытия")
         await state.clear()
         return
     
-    # Закрываем сделку
+    # Получаем сделку
     trade = Database.get_trade_by_id(trade_id)
     if not trade or trade.status != 'open':
         await message.answer("❌ Сделка уже закрыта или не найдена")
@@ -155,23 +187,31 @@ async def close_trade_final(message: Message, state: FSMContext):
         return
     
     # Закрываем сделку в БД
-    Database.close_trade(trade_id, data['result'], data['pnl'], data.get('mistake'))
+    Database.close_trade(trade_id, result, pnl, mistake)
+    print(f"📊 Сделка #{trade_id} закрыта в БД")
     
     # Обновляем депозит
     user_id = message.from_user.id
     current_deposit = Database.get_current_deposit(user_id)
-    new_deposit = current_deposit + data['pnl']
+    new_deposit = current_deposit + pnl
     Database.update_deposit(user_id, new_deposit)
     
-    # Отладка
-    print(f"💰 Закрытие сделки #{trade_id}")
-    print(f"   Старый депозит: {current_deposit}")
-    print(f"   PnL: {data['pnl']}")
-    print(f"   Новый депозит: {new_deposit}")
+    # ОТЛАДКА
+    print(f"💰 Депозит ДО: {current_deposit}")
+    print(f"💰 PnL: {pnl}")
+    print(f"💰 Депозит ПОСЛЕ: {new_deposit}")
     
     # Определяем эмодзи для результата
-    emoji = "🟢" if data['result'] == "profit" else "🔴" if data['result'] == "loss" else "⚪"
-    result_text = "Прибыль" if data['result'] == "profit" else "Убыток" if data['result'] == "loss" else "Безубыток"
+    emoji = "🟢" if result == "profit" else "🔴" if result == "loss" else "⚪"
+    result_text = "Прибыль" if result == "profit" else "Убыток" if result == "loss" else "Безубыток"
+    
+    # Форматируем PnL для отображения
+    if result == "profit":
+        pnl_display = f"+{pnl:.2f}$"
+    elif result == "loss":
+        pnl_display = f"-{abs(pnl):.2f}$"
+    else:
+        pnl_display = "0.00$"
     
     response = (
         f"✅ Сделка #{trade.id} закрыта!\n\n"
@@ -179,12 +219,12 @@ async def close_trade_final(message: Message, state: FSMContext):
         f"📈 {trade.direction}\n"
         f"💰 {trade.position_size}$\n"
         f"Результат: {emoji} {result_text}\n"
-        f"PnL: {'+' if data['pnl'] > 0 else ''}{data['pnl']:.2f}$\n"
+        f"PnL: {pnl_display}\n"
         f"Новый депозит: {new_deposit:.2f}$\n"
     )
     
-    if data.get('mistake'):
-        response += f"\n💡 Причина: {data['mistake']}"
+    if mistake:
+        response += f"\n💡 Причина: {mistake}"
     
     await message.answer(response, reply_markup=main_menu())
     await state.clear()

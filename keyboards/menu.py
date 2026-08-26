@@ -31,6 +31,7 @@ def stats_menu():
         [InlineKeyboardButton(text="🎯 По монетам", callback_data="stats_symbols")],
         [InlineKeyboardButton(text="📉 График депозита", callback_data="stats_chart")],
         [InlineKeyboardButton(text="📤 Экспорт в Excel", callback_data="export_excel")],
+        [InlineKeyboardButton(text="🗑️ Очистить статистику", callback_data="clear_stats")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
     ])
 
@@ -106,6 +107,15 @@ def confirm_delete_menu(trade_id):
         [
             InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_delete_{trade_id}"),
             InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_delete")
+        ]
+    ])
+
+def clear_stats_menu():
+    """Меню подтверждения очистки статистики"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да, очистить", callback_data="confirm_clear_stats"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_menu")
         ]
     ])
 
@@ -197,13 +207,3 @@ async def cancel_reset_deposit_callback(callback: CallbackQuery):
         reply_markup=main_menu()
     )
     await callback.answer()
-
-# ============= ОБРАБОТЧИКИ ДЛЯ КНОПОК РЕЗУЛЬТАТА (ЗДЕСЬ ОНИ НЕ НУЖНЫ, ОНИ В close_trade.py) =============
-# Но добавим их на всякий случай, чтобы не было ошибок "not handled"
-
-@router.callback_query(F.data.in_({"profit", "loss", "breakeven"}))
-async def result_buttons(callback: CallbackQuery):
-    """Обработка кнопок результата (перенаправление в close_trade)"""
-    # Этот обработчик нужен, чтобы не было ошибки "not handled"
-    # Основная логика в handlers/close_trade.py
-    await callback.answer("⏳ Обработка...")

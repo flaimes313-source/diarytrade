@@ -4,6 +4,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters import Command
 from keyboards.menu import main_menu, confirm_delete_menu
 from database.db import Database
+from services.deposit import DepositService
 
 router = Router()
 
@@ -47,19 +48,15 @@ async def show_history(message: Message, user_id: int):
             f"💵 Депозит: {trade.deposit}$\n"
         )
         
-        # Добавляем сетап если есть
         if trade.setup:
             text += f"📝 Сетап: {trade.setup}\n"
         
-        # Добавляем уверенность если есть
         if trade.confidence:
             text += f"⭐ Уверенность: {trade.confidence}/10\n"
         
-        # Добавляем ошибку если есть
         if trade.mistake:
             text += f"❌ Ошибка: {trade.mistake}\n"
         
-        # Кнопка удаления для ВСЕХ сделок (и открытых, и закрытых)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑️ Удалить сделку", callback_data=f"delete_trade_{trade.id}")]
         ])
@@ -78,10 +75,8 @@ async def show_history(message: Message, user_id: int):
         reply_markup=main_menu()
     )
 
-# ============= ОБРАБОТЧИК УДАЛЕНИЯ =============
 @router.callback_query(F.data.startswith("delete_trade_"))
 async def delete_trade_button(callback: CallbackQuery):
-    """Удаление сделки по кнопке корзины"""
     trade_id = int(callback.data.split("_")[2])
     user_id = callback.from_user.id
     
@@ -104,7 +99,6 @@ async def delete_trade_button(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Показываем информацию о сделке перед удалением
     status_text = "🟡 Открыта" if trade.status == "open" else "🔒 Закрыта"
     
     await callback.message.delete()
@@ -114,17 +108,14 @@ async def delete_trade_button(callback: CallbackQuery):
         f"💰 {trade.position_size}$\n"
         f"📅 {trade.date.strftime('%d.%m.%Y')}\n"
         f"Статус: {status_text}\n"
-        f"💵 Депозит на момент сделки: {trade.deposit}$\n"
         f"📝 Сетап: {trade.setup or '—'}\n\n"
         f"⚠️ Это действие нельзя отменить!",
         reply_markup=confirm_delete_menu(trade_id)
     )
     await callback.answer()
 
-# ============= ПОДТВЕРЖДЕНИЕ УДАЛЕНИЯ =============
 @router.callback_query(F.data.startswith("confirm_delete_"))
 async def confirm_delete(callback: CallbackQuery):
-    """Подтверждение удаления сделки"""
     trade_id = int(callback.data.split("_")[2])
     user_id = callback.from_user.id
     
@@ -154,11 +145,12 @@ async def confirm_delete(callback: CallbackQuery):
     position_size = trade.position_size
     trade_date = trade.date.strftime('%d.%m.%Y')
     setup = trade.setup or '—'
-    deposit_before = Database.get_current_deposit(user_id)
     
     # Удаляем сделку
     if Database.delete_trade(trade_id):
-        deposit_after = Database.get_current_deposit(user_id)
+        # Пересчитываем депозит через DepositService
+        new_deposit = DepositService.recalculate_deposit(user_id)
+        initial_deposit = DepositService.get_initial_deposit(user_id)
         
         await callback.message.delete()
         await callback.message.answer(
@@ -167,9 +159,8 @@ async def confirm_delete(callback: CallbackQuery):
             f"💰 {position_size}$\n"
             f"📅 {trade_date}\n"
             f"📝 Сетап: {setup}\n\n"
-            f"💵 Депозит был: {deposit_before}$\n"
-            f"💵 Депозит стал: {deposit_after}$\n"
-            f"{'📈 +' if deposit_after > deposit_before else '📉 '}{deposit_after - deposit_before:.2f}$",
+            f"💰 Текущий депозит: {new_deposit:.2f}$\n"
+            f"📊 Начальный депозит: {initial_deposit:.2f}$",
             reply_markup=main_menu()
         )
     else:
@@ -182,7 +173,6 @@ async def confirm_delete(callback: CallbackQuery):
 
 @router.callback_query(F.data == "cancel_delete")
 async def cancel_delete(callback: CallbackQuery):
-    """Отмена удаления сделки"""
     await callback.message.delete()
     await callback.message.answer(
         "✅ Удаление отменено",

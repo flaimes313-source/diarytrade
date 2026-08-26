@@ -2,11 +2,12 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, BufferedInputFile
 from aiogram.filters import Command
-from keyboards.menu import main_menu, stats_menu
+from keyboards.menu import main_menu, stats_menu, clear_stats_menu
 from database.db import Database
 from services.statistics import StatisticsService
 from services.charts import ChartService
 from services.export import ExportService
+from services.deposit import DepositService
 from datetime import datetime
 
 router = Router()
@@ -22,10 +23,9 @@ async def stats_callback(callback: CallbackQuery):
     await callback.answer()
 
 async def show_stats(message: Message, user_id: int):
-    # 👇 ИСПРАВЛЕНО: используем Database.get_stats напрямую
     stats = Database.get_stats(user_id)
-    current_deposit = Database.get_current_deposit(user_id)
-    user = Database.get_or_create_user(user_id)
+    current_deposit = DepositService.get_current_deposit(user_id)
+    initial_deposit = DepositService.get_initial_deposit(user_id)
     
     if stats['total'] == 0:
         await message.answer(
@@ -44,7 +44,8 @@ async def show_stats(message: Message, user_id: int):
         f"Win Rate: {stats['win_rate']:.2f}%\n"
         f"Общий PnL: {'+' if stats['total_pnl'] > 0 else ''}{stats['total_pnl']:.2f}$\n"
         f"Текущий депозит: {current_deposit:.2f}$\n"
-        f"Начальный депозит: {user.initial_deposit:.2f}$\n"
+        f"Начальный депозит: {initial_deposit:.2f}$\n"
+        f"Изменение депозита: {'+' if current_deposit - initial_deposit > 0 else ''}{current_deposit - initial_deposit:.2f}$\n"
         f"Средняя прибыль: +{stats['avg_profit']:.2f}$\n"
         f"Средний убыток: -{abs(stats['avg_loss']):.2f}$\n"
         f"Profit Factor: {stats['profit_factor']:.2f}\n"
@@ -82,7 +83,7 @@ async def stats_setups(callback: CallbackQuery):
             f"   PnL: {'+' if data['pnl'] > 0 else ''}{data['pnl']:.2f}$\n\n"
         )
     
-    await callback.message.answer(text, reply_markup=main_menu())
+    await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
 @router.callback_query(F.data == "stats_months")
@@ -123,7 +124,7 @@ async def stats_months(callback: CallbackQuery):
             f"-----------------\n\n"
         )
     
-    await callback.message.answer(text, reply_markup=main_menu())
+    await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
 @router.callback_query(F.data == "stats_symbols")
@@ -146,14 +147,14 @@ async def stats_symbols(callback: CallbackQuery):
         emoji = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
         text += f"{emoji} {symbol}: {'+' if pnl > 0 else ''}{pnl:.2f}$\n"
     
-    await callback.message.answer(text, reply_markup=main_menu())
+    await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
 @router.callback_query(F.data == "stats_chart")
 async def stats_chart(callback: CallbackQuery):
     await callback.message.delete()
     
-    history = Database.get_deposit_history(callback.from_user.id)
+    history = DepositService.get_deposit_history(callback.from_user.id)
     
     if len(history) < 2:
         await callback.message.answer(
@@ -172,12 +173,10 @@ async def stats_chart(callback: CallbackQuery):
                     f"Начальный: {history[0]:.2f}$\n"
                     f"Текущий: {history[-1]:.2f}$\n"
                     f"Изменение: {'+' if history[-1] - history[0] > 0 else ''}{history[-1] - history[0]:.2f}$",
-            reply_markup=main_menu()
+            reply_markup=stats_menu()
         )
     
     await callback.answer()
-
-# ============= ЭКСПОРТ В EXCEL =============
 
 @router.callback_query(F.data == "export_excel")
 async def export_excel(callback: CallbackQuery):
@@ -238,4 +237,84 @@ async def export_template(callback: CallbackQuery):
         reply_markup=main_menu()
     )
     
+    await callback.answer()
+
+@router.callback_query(F.data == "clear_stats")
+async def clear_stats(callback: CallbackQuery):
+    """Запрос подтверждения очистки статистики"""
+    user_id = callback.from_user.id
+    
+    trades = Database.get_all_trades(user_id)
+    closed_trades = [t for t in trades if t.status == 'closed']
+    
+    if not closed_trades:
+        await callback.message.answer(
+            "📊 Нет закрытых сделок для очистки.",
+            reply_markup=main_menu()
+        )
+        await callback.answer()
+        return
+    
+    await callback.message.delete()
+    await callback.message.answer(
+        f"⚠️ ВНИМАНИЕ!\n\n"
+        f"Будет удалено {len(closed_trades)} закрытых сделок.\n"
+        f"Открытые сделки НЕ будут затронуты.\n"
+        f"Депозит будет сброшен до начального.\n\n"
+        f"Это действие нельзя отменить!",
+        reply_markup=clear_stats_menu()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "confirm_clear_stats")
+async def confirm_clear_stats(callback: CallbackQuery):
+    """Подтверждение очистки статистики"""
+    user_id = callback.from_user.id
+    
+    # Удаляем все закрытые сделки
+    deleted_count = Database.clear_closed_trades(user_id)
+    
+    # Пересчитываем депозит
+    new_deposit = DepositService.recalculate_deposit(user_id)
+    initial_deposit = DepositService.get_initial_deposit(user_id)
+    
+    await callback.message.delete()
+    await callback.message.answer(
+        f"✅ Статистика очищена!\n\n"
+        f"🗑️ Удалено сделок: {deleted_count}\n"
+        f"💰 Текущий депозит: {new_deposit:.2f}$\n"
+        f"📊 Начальный депозит: {initial_deposit:.2f}$",
+        reply_markup=main_menu()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "stats_mistakes")
+async def stats_mistakes(callback: CallbackQuery):
+    """Статистика по ошибкам"""
+    await callback.message.delete()
+    
+    mistakes = Database.get_mistakes_stats(callback.from_user.id)
+    
+    if not mistakes:
+        await callback.message.answer(
+            "🧠 Анализ ошибок\n\n"
+            "Нет данных об ошибках.",
+            reply_markup=stats_menu()
+        )
+        await callback.answer()
+        return
+    
+    text = "🧠 Анализ ошибок\n\n"
+    
+    for mistake, data in mistakes.items():
+        loss_rate = (data['losses'] / data['total'] * 100) if data['total'] > 0 else 0
+        text += (
+            f"📌 {mistake}\n"
+            f"   Сделок: {data['total']}\n"
+            f"   Убытков: {data['losses']}\n"
+            f"   Потери: {abs(data['pnl']):.2f}$\n"
+            f"   {loss_rate:.0f}% убыточных\n\n"
+        )
+    
+    await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()

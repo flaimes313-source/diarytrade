@@ -159,34 +159,37 @@ class Database:
     
     @staticmethod
     def delete_trade(trade_id):
-        """Удалить сделку по ID и восстановить депозит"""
+        """
+        Удалить сделку по ID и пересчитать депозит через сумму PnL всех закрытых сделок.
+        Это правильный способ удаления, так как он не зависит от порядка сделок.
+        """
         session = Session()
         try:
             trade = session.query(Trade).filter_by(id=trade_id).first()
-            if trade:
-                user_id = trade.user_id
-                old_deposit = trade.deposit
-                
-                if trade.status == 'open' and old_deposit is not None:
-                    user = session.query(User).filter_by(user_id=user_id).first()
-                    if user:
-                        user.current_deposit = old_deposit
-                        session.commit()
-                        print(f"💰 БД: Депозит восстановлен до {old_deposit}$ для пользователя {user_id}")
-                elif trade.status == 'closed' and trade.pnl is not None:
-                    user = session.query(User).filter_by(user_id=user_id).first()
-                    if user and old_deposit is not None:
-                        user.current_deposit = old_deposit
-                        session.commit()
-                        print(f"💰 БД: Депозит восстановлен до {old_deposit}$ для пользователя {user_id} (закрытая сделка)")
-                
-                session.delete(trade)
-                session.commit()
+            if not trade:
                 session.close()
-                print(f"🗑️ БД: Сделка #{trade_id} удалена")
-                return True
+                return False
+            
+            user_id = trade.user_id
+            
+            # Удаляем сделку
+            session.delete(trade)
+            session.commit()
+            print(f"🗑️ БД: Сделка #{trade_id} удалена")
+            
+            # Пересчитываем депозит через сумму PnL всех закрытых сделок
+            user = session.query(User).filter_by(user_id=user_id).first()
+            if user:
+                closed_trades = session.query(Trade).filter_by(user_id=user_id, status='closed').all()
+                total_pnl = sum(t.pnl for t in closed_trades if t.pnl is not None)
+                new_deposit = user.initial_deposit + total_pnl
+                user.current_deposit = new_deposit
+                session.commit()
+                print(f"💰 БД: Депозит пересчитан: {new_deposit} (initial={user.initial_deposit}, total_pnl={total_pnl})")
+            
             session.close()
-            return False
+            return True
+            
         except Exception as e:
             session.rollback()
             session.close()
@@ -356,19 +359,15 @@ class Database:
     
     @staticmethod
     def get_deposit_history(user_id):
-        """Получить историю депозита"""
+        """Получить историю депозита (на основе начального депозита + сумма PnL)"""
         session = Session()
         trades = session.query(Trade).filter_by(user_id=user_id).order_by(Trade.date).all()
         
-        history = []
         user = session.query(User).filter_by(user_id=user_id).first()
+        initial = user.initial_deposit if user else 0
         
-        if user and user.initial_deposit:
-            current = user.initial_deposit
-        else:
-            current = 0
-        
-        history.append(current)
+        history = [initial]
+        current = initial
         
         for trade in trades:
             if trade.status == 'closed' and trade.pnl is not None:
@@ -449,3 +448,34 @@ class Database:
         trades = session.query(Trade).filter_by(status='open').all()
         session.close()
         return trades
+    
+    @staticmethod
+    def clear_closed_trades(user_id):
+        """
+        Удалить все закрытые сделки пользователя и пересчитать депозит.
+        Открытые сделки не затрагиваются.
+        """
+        session = Session()
+        try:
+            closed_trades = session.query(Trade).filter_by(user_id=user_id, status='closed').all()
+            deleted_count = len(closed_trades)
+            
+            for trade in closed_trades:
+                session.delete(trade)
+            
+            # Пересчитываем депозит
+            user = session.query(User).filter_by(user_id=user_id).first()
+            if user:
+                # Депозит становится равен начальному депозиту
+                user.current_deposit = user.initial_deposit
+                session.commit()
+                print(f"💰 БД: Депозит сброшен до {user.initial_deposit}")
+            
+            session.commit()
+            session.close()
+            return deleted_count
+        except Exception as e:
+            session.rollback()
+            session.close()
+            print(f"❌ БД: Ошибка очистки статистики: {e}")
+            return 0

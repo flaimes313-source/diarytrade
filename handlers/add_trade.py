@@ -8,11 +8,8 @@ from keyboards.menu import (
     main_menu, 
     add_trade_menu, 
     direction_keyboard, 
-    result_keyboard, 
-    mistake_keyboard, 
     deposit_menu, 
-    confirm_reset_deposit_menu,
-    open_trades_menu
+    confirm_reset_deposit_menu
 )
 from database.db import Database
 from config import SCREENSHOTS_DIR
@@ -31,26 +28,18 @@ class AddTradeStates(StatesGroup):
     waiting_screenshot = State()
     waiting_deposit = State()
 
-class CloseTradeStates(StatesGroup):
-    waiting_result = State()
-    waiting_pnl = State()
-    waiting_mistake = State()
-    waiting_trade_select = State()
-
 class DepositStates(StatesGroup):
     waiting_deposit_amount = State()
     waiting_new_deposit = State()
 
 # ============= ПРОВЕРКА И СОЗДАНИЕ ПАПКИ ДЛЯ СКРИНШОТОВ =============
 def ensure_screenshots_dir():
-    """Проверяет существование папки для скриншотов и создает её при необходимости"""
     global SCREENSHOTS_DIR
     
     print(f"\n📁 ПРОВЕРКА ПАПКИ ДЛЯ СКРИНШОТОВ:")
     print(f"   Путь: {SCREENSHOTS_DIR}")
     
     try:
-        # Проверяем существование
         if not os.path.exists(SCREENSHOTS_DIR):
             print(f"   ⚠️ Папка не найдена, создаю...")
             os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
@@ -58,7 +47,6 @@ def ensure_screenshots_dir():
         else:
             print(f"   ✅ Папка существует")
         
-        # Проверяем права на запись
         test_file = os.path.join(SCREENSHOTS_DIR, 'test_write.txt')
         try:
             with open(test_file, 'w') as f:
@@ -74,27 +62,11 @@ def ensure_screenshots_dir():
             if not os.path.exists(SCREENSHOTS_DIR):
                 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
             print(f"   ✅ Использую: {SCREENSHOTS_DIR}")
-            
-            # Проверяем права на запись во временной папке
-            test_file = os.path.join(SCREENSHOTS_DIR, 'test_write.txt')
-            try:
-                with open(test_file, 'w') as f:
-                    f.write('test')
-                os.remove(test_file)
-                print(f"   ✅ Есть права на запись во временной папке")
-                return True
-            except:
-                print(f"   ❌ НЕТ ПРАВ НА ЗАПИСЬ ВО ВРЕМЕННОЙ ПАПКЕ!")
-                return False
-                
+            return True
     except Exception as e:
         print(f"   ❌ Ошибка: {e}")
-        print(f"   🔄 Использую текущую папку...")
-        SCREENSHOTS_DIR = os.path.dirname(os.path.abspath(__file__))
-        print(f"   ✅ Использую: {SCREENSHOTS_DIR}")
         return True
 
-# Вызываем при старте
 ensure_screenshots_dir()
 
 # ============= КОМАНДА /start =============
@@ -103,7 +75,6 @@ async def start(message: Message):
     user_id = message.from_user.id
     Database.get_or_create_user(user_id)
     
-    # Проверяем есть ли открытые сделки
     open_trades = Database.get_open_trades(user_id)
     
     if open_trades:
@@ -120,8 +91,7 @@ async def start(message: Message):
         await message.answer(text, reply_markup=main_menu(has_open_trade=True))
     else:
         await message.answer(
-            "📖 Дневник трейдера\n\n"
-            "Выберите действие:",
+            "📖 Дневник трейдера\n\nВыберите действие:",
             reply_markup=main_menu()
         )
 
@@ -130,13 +100,11 @@ async def start(message: Message):
 async def get_id(message: Message):
     await message.answer(f"🆔 Ваш Telegram ID: `{message.from_user.id}`")
 
-# ============= КОМАНДА /deposit - УСТАНОВКА НАЧАЛЬНОГО ДЕПОЗИТА =============
+# ============= КОМАНДА /deposit =============
 @router.message(Command("deposit"))
 async def set_deposit(message: Message):
-    """Установить начальный депозит"""
     user_id = message.from_user.id
     
-    # Парсим сумму из команды
     parts = message.text.split()
     if len(parts) < 2:
         current_deposit = Database.get_current_deposit(user_id)
@@ -161,7 +129,6 @@ async def set_deposit(message: Message):
         await message.answer("❌ Введите число (например: 1000)")
         return
     
-    # Сохраняем начальный депозит
     Database.set_initial_deposit(user_id, deposit)
     
     await message.answer(
@@ -172,14 +139,12 @@ async def set_deposit(message: Message):
         reply_markup=main_menu()
     )
 
-# ============= КОМАНДА /reset_deposit - ОБНУЛИТЬ И УСТАНОВИТЬ НОВЫЙ ДЕПОЗИТ =============
+# ============= КОМАНДА /reset_deposit =============
 @router.message(Command("reset_deposit"))
 async def reset_deposit(message: Message):
-    """Обнулить депозит и установить новый"""
     user_id = message.from_user.id
     current_deposit = Database.get_current_deposit(user_id)
     
-    # Проверяем есть ли открытые сделки
     open_trades = Database.get_open_trades(user_id)
     if open_trades:
         await message.answer(
@@ -201,7 +166,6 @@ async def reset_deposit(message: Message):
 
 @router.callback_query(F.data == "confirm_reset_deposit")
 async def confirm_reset_deposit(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение сброса депозита"""
     try:
         await callback.message.delete()
     except:
@@ -216,7 +180,6 @@ async def confirm_reset_deposit(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "cancel_reset_deposit")
 async def cancel_reset_deposit(callback: CallbackQuery):
-    """Отмена сброса депозита"""
     try:
         await callback.message.delete()
     except:
@@ -229,7 +192,6 @@ async def cancel_reset_deposit(callback: CallbackQuery):
 
 @router.message(DepositStates.waiting_new_deposit)
 async def process_new_deposit(message: Message, state: FSMContext):
-    """Обработка нового депозита"""
     user_id = message.from_user.id
     
     try:
@@ -243,7 +205,6 @@ async def process_new_deposit(message: Message, state: FSMContext):
     
     old_deposit = Database.get_current_deposit(user_id)
     
-    # Сохраняем новый депозит
     Database.set_initial_deposit(user_id, new_deposit)
     Database.update_deposit(user_id, new_deposit)
     
@@ -431,7 +392,6 @@ async def skip_screenshot(callback: CallbackQuery, state: FSMContext):
     await save_trade(callback.message, state, callback.from_user.id)
     await callback.answer()
 
-# ============= ОБРАБОТКА СКРИНШОТА С ПРОВЕРКОЙ ПАПКИ =============
 @router.message(AddTradeStates.waiting_screenshot)
 async def process_screenshot(message: Message, state: FSMContext):
     global SCREENSHOTS_DIR
@@ -442,13 +402,11 @@ async def process_screenshot(message: Message, state: FSMContext):
             print(f"   Путь к папке: {SCREENSHOTS_DIR}")
             print(f"   Папка существует: {os.path.exists(SCREENSHOTS_DIR)}")
             
-            # Проверяем и создаем папку если нужно
             if not os.path.exists(SCREENSHOTS_DIR):
                 print(f"   ⚠️ Папка не найдена, создаю...")
                 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
                 print(f"   ✅ Папка создана")
             
-            # Проверяем права на запись
             if os.access(SCREENSHOTS_DIR, os.W_OK):
                 print(f"   ✅ Есть права на запись")
             else:
@@ -459,21 +417,16 @@ async def process_screenshot(message: Message, state: FSMContext):
                     os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
                 print(f"   🔄 Использую временную папку: {SCREENSHOTS_DIR}")
             
-            # Сохраняем скриншот
             photo = message.photo[-1]
             file = await message.bot.get_file(photo.file_id)
-            print(f"   ID файла: {file.file_id}")
             
-            # Создаем имя файла
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             file_name = f"{message.from_user.id}_{timestamp}.jpg"
             file_path = os.path.join(SCREENSHOTS_DIR, file_name)
             print(f"   Сохраняю в: {file_path}")
             
-            # Скачиваем файл
             await message.bot.download_file(file.file_path, file_path)
             
-            # Проверяем, что файл создан
             if os.path.exists(file_path):
                 file_size = os.path.getsize(file_path)
                 print(f"   ✅ Файл сохранен, размер: {file_size} байт")
@@ -481,18 +434,15 @@ async def process_screenshot(message: Message, state: FSMContext):
                     await state.update_data(screenshot=file_path)
                     await save_trade(message, state, message.from_user.id)
                 else:
-                    print(f"   ❌ Файл пустой!")
                     await message.answer(
                         "❌ Ошибка: файл пустой. Попробуйте еще раз.",
                         reply_markup=add_trade_menu()
                     )
             else:
-                print(f"   ❌ Файл не создан!")
                 await message.answer(
                     "❌ Ошибка при сохранении скриншота. Попробуйте еще раз.",
                     reply_markup=add_trade_menu()
                 )
-                
         except Exception as e:
             print(f"❌ ОШИБКА: {e}")
             import traceback
@@ -508,12 +458,10 @@ async def process_screenshot(message: Message, state: FSMContext):
             reply_markup=add_trade_menu()
         )
 
-# ============= СОХРАНЕНИЕ СДЕЛКИ =============
 async def save_trade(message: Message, state: FSMContext, user_id: int):
     data = await state.get_data()
     
     try:
-        # Получаем текущий депозит
         deposit = Database.get_current_deposit(user_id)
         
         trade_id = Database.add_trade(
@@ -527,7 +475,6 @@ async def save_trade(message: Message, state: FSMContext, user_id: int):
             deposit=deposit
         )
         
-        # Формируем сообщение
         response = (
             f"✅ Сделка #{trade_id} сохранена!\n\n"
             f"🪙 {data['symbol']}\n"
@@ -564,176 +511,9 @@ async def save_trade(message: Message, state: FSMContext, user_id: int):
     
     await state.clear()
 
-# ============= ЗАКРЫТИЕ СДЕЛКИ =============
-@router.callback_query(F.data == "close_trade")
-async def close_trade_menu(callback: CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    open_trades = Database.get_open_trades(user_id)
-    
-    if not open_trades:
-        await callback.message.answer(
-            "❌ У вас нет открытых сделок.",
-            reply_markup=main_menu()
-        )
-        await callback.answer()
-        return
-    
-    if len(open_trades) == 1:
-        trade = open_trades[0]
-        try:
-            await callback.message.delete()
-        except:
-            pass
-        await callback.message.answer(
-            f"📊 Закрытие сделки #{trade.id}\n\n"
-            f"🪙 {trade.symbol}\n"
-            f"📈 {trade.direction}\n"
-            f"💰 {trade.position_size}$\n\n"
-            f"Выберите результат:",
-            reply_markup=result_keyboard()
-        )
-        await state.update_data(trade_id=trade.id)
-        await state.set_state(CloseTradeStates.waiting_result)
-    else:
-        try:
-            await callback.message.delete()
-        except:
-            pass
-        text = f"📊 Выберите сделку для закрытия:\n\n"
-        for trade in open_trades:
-            text += f"#{trade.id} 🪙 {trade.symbol} 📈 {trade.direction} | 💰 {trade.position_size}$\n"
-        
-        await callback.message.answer(
-            text,
-            reply_markup=open_trades_menu(open_trades)
-        )
-    
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("close_trade_"))
-async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
-    trade_id = int(callback.data.split("_")[2])
-    
-    trade = Database.get_trade_by_id(trade_id)
-    if not trade or trade.status != 'open':
-        await callback.message.answer(
-            "❌ Сделка уже закрыта или не найдена.",
-            reply_markup=main_menu()
-        )
-        await callback.answer()
-        return
-    
-    try:
-        await callback.message.delete()
-    except:
-        pass
-    
-    await callback.message.answer(
-        f"📊 Закрытие сделки #{trade.id}\n\n"
-        f"🪙 {trade.symbol}\n"
-        f"📈 {trade.direction}\n"
-        f"💰 {trade.position_size}$\n\n"
-        f"Выберите результат:",
-        reply_markup=result_keyboard()
-    )
-    await state.update_data(trade_id=trade.id)
-    await state.set_state(CloseTradeStates.waiting_result)
-    await callback.answer()
-
-@router.callback_query(CloseTradeStates.waiting_result)
-async def process_result(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(result=callback.data)
-    try:
-        await callback.message.delete()
-    except:
-        pass
-    
-    emoji = "🟢" if callback.data == "profit" else "🔴" if callback.data == "loss" else "⚪"
-    result_text = "Прибыль" if callback.data == "profit" else "Убыток" if callback.data == "loss" else "Безубыток"
-    
-    await callback.message.answer(
-        f"{emoji} {result_text}\n\n"
-        f"Введите сумму в $\n\n"
-        f"Например: +58 или -22"
-    )
-    await state.set_state(CloseTradeStates.waiting_pnl)
-    await callback.answer()
-
-@router.message(CloseTradeStates.waiting_pnl)
-async def process_pnl(message: Message, state: FSMContext):
-    try:
-        pnl = float(message.text.replace(',', '.'))
-        await state.update_data(pnl=pnl)
-        
-        if pnl < 0:
-            await message.answer(
-                "❓ Почему получили убыток? Выберите причину:",
-                reply_markup=mistake_keyboard()
-            )
-            await state.set_state(CloseTradeStates.waiting_mistake)
-        else:
-            await state.update_data(mistake=None)
-            await close_trade_final(message, state)
-            
-    except ValueError:
-        await message.answer("❌ Введите число (например: +58 или -22)")
-
-@router.callback_query(CloseTradeStates.waiting_mistake)
-async def process_mistake(callback: CallbackQuery, state: FSMContext):
-    mistake = None if callback.data == "no_mistake" else callback.data
-    await state.update_data(mistake=mistake)
-    try:
-        await callback.message.delete()
-    except:
-        pass
-    await close_trade_final(callback.message, state)
-    await callback.answer()
-
-async def close_trade_final(message: Message, state: FSMContext):
-    data = await state.get_data()
-    trade_id = data.get('trade_id')
-    
-    if not trade_id:
-        await message.answer("❌ Ошибка: не найдена сделка для закрытия")
-        await state.clear()
-        return
-    
-    trade = Database.get_trade_by_id(trade_id)
-    if not trade or trade.status != 'open':
-        await message.answer("❌ Сделка уже закрыта или не найдена")
-        await state.clear()
-        return
-    
-    Database.close_trade(trade_id, data['result'], data['pnl'], data.get('mistake'))
-    
-    user_id = message.from_user.id
-    current_deposit = Database.get_current_deposit(user_id)
-    new_deposit = current_deposit + data['pnl']
-    Database.update_deposit(user_id, new_deposit)
-    
-    emoji = "🟢" if data['result'] == "profit" else "🔴" if data['result'] == "loss" else "⚪"
-    result_text = "Прибыль" if data['result'] == "profit" else "Убыток" if data['result'] == "loss" else "Безубыток"
-    
-    response = (
-        f"✅ Сделка #{trade.id} закрыта!\n\n"
-        f"🪙 {trade.symbol}\n"
-        f"📈 {trade.direction}\n"
-        f"💰 {trade.position_size}$\n"
-        f"Результат: {emoji} {result_text}\n"
-        f"PnL: {'+' if data['pnl'] > 0 else ''}{data['pnl']:.2f}$\n"
-        f"Новый депозит: {new_deposit:.2f}$\n"
-    )
-    
-    if data.get('mistake'):
-        response += f"\n💡 Причина: {data['mistake']}"
-    
-    await message.answer(response, reply_markup=main_menu())
-    await state.clear()
-
 # ============= КОМАНДА /mydel - УДАЛЕНИЕ СВОЕЙ СДЕЛКИ =============
 @router.message(Command("mydel"))
 async def delete_my_trade(message: Message):
-    """Удалить свою открытую сделку по ID"""
     user_id = message.from_user.id
     
     parts = message.text.split()

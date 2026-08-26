@@ -2,11 +2,17 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from handlers.add_trade import CloseTradeStates
+from aiogram.fsm.state import State, StatesGroup
 from keyboards.menu import main_menu, result_keyboard, mistake_keyboard, open_trades_menu
 from database.db import Database
+from services.deposit import DepositService
 
 router = Router()
+
+class CloseTradeStates(StatesGroup):
+    waiting_result = State()
+    waiting_pnl = State()
+    waiting_mistake = State()
 
 @router.callback_query(F.data == "close_trade")
 async def close_trade_menu(callback: CallbackQuery, state: FSMContext):
@@ -25,7 +31,11 @@ async def close_trade_menu(callback: CallbackQuery, state: FSMContext):
         except:
             pass
         await callback.message.answer(
-            f"📊 Закрытие сделки #{trade.id}\n\n🪙 {trade.symbol}\n📈 {trade.direction}\n💰 {trade.position_size}$\n\nВыберите результат:",
+            f"📊 Закрытие сделки #{trade.id}\n\n"
+            f"🪙 {trade.symbol}\n"
+            f"📈 {trade.direction}\n"
+            f"💰 {trade.position_size}$\n\n"
+            f"Выберите результат:",
             reply_markup=result_keyboard()
         )
         await state.update_data(trade_id=trade.id)
@@ -56,7 +66,11 @@ async def close_specific_trade(callback: CallbackQuery, state: FSMContext):
     except:
         pass
     await callback.message.answer(
-        f"📊 Закрытие сделки #{trade.id}\n\n🪙 {trade.symbol}\n📈 {trade.direction}\n💰 {trade.position_size}$\n\nВыберите результат:",
+        f"📊 Закрытие сделки #{trade.id}\n\n"
+        f"🪙 {trade.symbol}\n"
+        f"📈 {trade.direction}\n"
+        f"💰 {trade.position_size}$\n\n"
+        f"Выберите результат:",
         reply_markup=result_keyboard()
     )
     await state.update_data(trade_id=trade.id)
@@ -73,10 +87,18 @@ async def process_result(callback: CallbackQuery, state: FSMContext):
         pass
     
     if result == "profit":
-        await callback.message.answer("🟢 Прибыль\n\nВведите сумму прибыли в $\n\nНапример: 58")
+        await callback.message.answer(
+            "🟢 Прибыль\n\n"
+            "Введите сумму прибыли в $\n\n"
+            "Например: 58"
+        )
         await state.set_state(CloseTradeStates.waiting_pnl)
     elif result == "loss":
-        await callback.message.answer("🔴 Убыток\n\nВведите сумму убытка в $\n\nНапример: 22")
+        await callback.message.answer(
+            "🔴 Убыток\n\n"
+            "Введите сумму убытка в $\n\n"
+            "Например: 22"
+        )
         await state.set_state(CloseTradeStates.waiting_pnl)
     else:
         await state.update_data(pnl=0)
@@ -90,23 +112,18 @@ async def process_pnl(message: Message, state: FSMContext):
     data = await state.get_data()
     result = data.get('result')
     
-    # 👇 ОЧИЩАЕМ ТЕКСТ ОТ ЛИШНИХ СИМВОЛОВ
-    text = message.text.strip().replace(',', '.')
-    
     try:
-        amount = float(text)
+        amount = float(message.text.replace(',', '.'))
         print(f"📊 process_pnl: result={result}, amount={amount}")
         
-        # 👇 ПРИНУДИТЕЛЬНО ДЕЛАЕМ PNL ОТРИЦАТЕЛЬНЫМ ДЛЯ УБЫТКА
         if result == "loss":
             pnl = -abs(amount)
         else:
-            pnl = amount
+            pnl = abs(amount)
         
         await state.update_data(pnl=pnl)
         print(f"📊 process_pnl: pnl={pnl}")
         
-        # 👇 ВСЕГДА ПОКАЗЫВАЕМ ПРИЧИНЫ ДЛЯ УБЫТКА
         if result == "loss":
             await message.answer(
                 "❓ Почему получили убыток? Выберите причину:",
@@ -152,24 +169,32 @@ async def close_trade_final(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    user_id = message.from_user.id
-    print(f"👤 user_id: {user_id}")
+    # 👇 ГЛАВНОЕ ИСПРАВЛЕНИЕ: берем user_id из сделки!
+    user_id = trade.user_id
+    print(f"👤 user_id из сделки: {user_id}")
     
     Database.get_or_create_user(user_id)
     Database.close_trade(trade_id, result, pnl, mistake)
     
-    current_deposit = Database.get_current_deposit(user_id)
-    new_deposit = current_deposit + pnl
-    Database.update_deposit(user_id, new_deposit)
+    # Пересчитываем депозит через DepositService
+    new_deposit = DepositService.recalculate_deposit(user_id)
+    current_deposit = DepositService.get_current_deposit(user_id)
     
-    print(f"💰 ДО: {current_deposit} + {pnl} = {new_deposit}")
+    print(f"💰 Депозит после пересчета: {current_deposit}")
     
     emoji = "🟢" if result == "profit" else "🔴" if result == "loss" else "⚪"
     result_text = "Прибыль" if result == "profit" else "Убыток" if result == "loss" else "Безубыток"
     pnl_display = f"+{pnl:.2f}$" if result == "profit" else f"-{abs(pnl):.2f}$" if result == "loss" else "0.00$"
     
-    response = (f"✅ Сделка #{trade.id} закрыта!\n\n🪙 {trade.symbol}\n📈 {trade.direction}\n💰 {trade.position_size}$\n"
-                f"Результат: {emoji} {result_text}\nPnL: {pnl_display}\nНовый депозит: {new_deposit:.2f}$")
+    response = (
+        f"✅ Сделка #{trade.id} закрыта!\n\n"
+        f"🪙 {trade.symbol}\n"
+        f"📈 {trade.direction}\n"
+        f"💰 {trade.position_size}$\n"
+        f"Результат: {emoji} {result_text}\n"
+        f"PnL: {pnl_display}\n"
+        f"Новый депозит: {current_deposit:.2f}$"
+    )
     if mistake:
         response += f"\n💡 Причина: {mistake}"
     

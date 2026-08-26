@@ -32,6 +32,7 @@ def stats_menu():
         [InlineKeyboardButton(text="📉 График депозита", callback_data="stats_chart")],
         [InlineKeyboardButton(text="📤 Экспорт в Excel", callback_data="export_excel")],
         [InlineKeyboardButton(text="🗑️ Очистить статистику", callback_data="clear_stats")],
+        [InlineKeyboardButton(text="🧠 Анализ ошибок", callback_data="stats_mistakes")],
         [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
     ])
 
@@ -117,6 +118,29 @@ def clear_stats_menu():
             InlineKeyboardButton(text="✅ Да, очистить", callback_data="confirm_clear_stats"),
             InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_menu")
         ]
+    ])
+
+def admin_menu():
+    """Меню администратора"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+        [InlineKeyboardButton(text="📊 Общая статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton(text="📢 Рассылка", callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu")]
+    ])
+
+def broadcast_photo_skip_menu():
+    """Клавиатура для пропуска фото в рассылке"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Пропустить фото", callback_data="broadcast_skip_photo")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
+    ])
+
+def broadcast_confirm_menu():
+    """Клавиатура подтверждения рассылки"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="broadcast_confirm")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
     ])
 
 # ============= ОБРАБОТЧИКИ КЛАВИАТУР =============

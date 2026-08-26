@@ -10,9 +10,8 @@ load_dotenv()
 # Если не задана - используем локальную SQLite
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///database/journal.db')
 
-# ============= VK НАСТРОЙКИ =============
-VK_TOKEN = os.getenv('VK_TOKEN')
-VK_GROUP_ID = os.getenv('VK_GROUP_ID')
+# ============= TELEGRAM НАСТРОЙКИ =============
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_IDS = []
 
 admin_ids_str = os.getenv('ADMIN_IDS', '')
@@ -21,9 +20,6 @@ if admin_ids_str:
         ADMIN_IDS = [int(x.strip()) for x in admin_ids_str.split(',') if x.strip()]
     except ValueError:
         ADMIN_IDS = []
-
-CONFIRMATION_TOKEN = os.getenv('CONFIRMATION_TOKEN')
-VK_SECRET_KEY = os.getenv('VK_SECRET_KEY', '')
 
 # ============= ПУТИ =============
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,24 +44,13 @@ def create_required_dirs():
 create_required_dirs()
 
 # ============= ПРОВЕРКИ =============
-if not VK_TOKEN:
-    print("❌ ОШИБКА: VK_TOKEN не найден в переменных окружения!")
-    print("Добавьте VK_TOKEN в настройках хостинга или в файле .env")
-    sys.exit(1)
-
-if not VK_GROUP_ID:
-    print("❌ ОШИБКА: VK_GROUP_ID не найден в переменных окружения!")
-    sys.exit(1)
-
-if not CONFIRMATION_TOKEN:
-    print("❌ ОШИБКА: CONFIRMATION_TOKEN не найден в переменных окружения!")
-    print("Добавьте CONFIRMATION_TOKEN в настройках хостинга или в файле .env")
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не найден в переменных окружения!")
+    print("Добавьте BOT_TOKEN в настройках хостинга или в файле .env")
     sys.exit(1)
 
 # ============= ВЫВОД ИНФОРМАЦИИ =============
 print(f"✅ Конфигурация загружена успешно!")
-print(f"✅ VK Group ID: {VK_GROUP_ID}")
 print(f"✅ Администраторы: {ADMIN_IDS}")
 print(f"✅ База данных: {DATABASE_PATH}")
 print(f"✅ DATABASE_URL: {DATABASE_URL[:50]}..." if len(DATABASE_URL) > 50 else f"✅ DATABASE_URL: {DATABASE_URL}")
-print(f"✅ Confirmation Token: {CONFIRMATION_TOKEN[:10]}...")

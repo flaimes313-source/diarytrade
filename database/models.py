@@ -20,7 +20,7 @@ class Trade(Base):
     __tablename__ = 'trades'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, nullable=False)  # ID пользователя в Telegram/VK
+    user_id = Column(Integer, nullable=False)  # ID пользователя в Telegram
     date = Column(DateTime, default=datetime.now)  # Дата создания
     symbol = Column(String(20), nullable=False)  # Монета (BTCUSDT, ETHUSDT)
     direction = Column(String(10), nullable=False)  # LONG / SHORT
@@ -44,7 +44,7 @@ class User(Base):
     __tablename__ = 'users'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, unique=True, nullable=False)  # ID пользователя в Telegram/VK
+    user_id = Column(Integer, unique=True, nullable=False)  # ID пользователя в Telegram
     initial_deposit = Column(Float, default=0)  # Начальный депозит
     current_deposit = Column(Float, default=0)  # Текущий депозит
     created_at = Column(DateTime, default=datetime.now)

@@ -7,7 +7,7 @@ from database.db import Database
 from services.statistics import StatisticsService
 from services.charts import ChartService
 from services.export import ExportService
-from datetime import datetime  # 👈 НЕ ХВАТАЛО ЭТОГО ИМПОРТА
+from datetime import datetime
 
 router = Router()
 
@@ -22,7 +22,10 @@ async def stats_callback(callback: CallbackQuery):
     await callback.answer()
 
 async def show_stats(message: Message, user_id: int):
-    stats = StatisticsService.get_full_stats(user_id)
+    # 👇 ИСПРАВЛЕНО: используем Database.get_stats напрямую
+    stats = Database.get_stats(user_id)
+    current_deposit = Database.get_current_deposit(user_id)
+    user = Database.get_or_create_user(user_id)
     
     if stats['total'] == 0:
         await message.answer(
@@ -40,7 +43,8 @@ async def show_stats(message: Message, user_id: int):
         f"Безубыточных: {stats['breakevens']}\n"
         f"Win Rate: {stats['win_rate']:.2f}%\n"
         f"Общий PnL: {'+' if stats['total_pnl'] > 0 else ''}{stats['total_pnl']:.2f}$\n"
-        f"Текущий депозит: {stats['current_deposit']:.2f}$\n"
+        f"Текущий депозит: {current_deposit:.2f}$\n"
+        f"Начальный депозит: {user.initial_deposit:.2f}$\n"
         f"Средняя прибыль: +{stats['avg_profit']:.2f}$\n"
         f"Средний убыток: -{abs(stats['avg_loss']):.2f}$\n"
         f"Profit Factor: {stats['profit_factor']:.2f}\n"
@@ -67,7 +71,6 @@ async def stats_setups(callback: CallbackQuery):
     
     text = "📊 Статистика по сетапам\n\n"
     
-    # ТОП стратегий
     sorted_setups = sorted(setups.items(), key=lambda x: x[1]['win_rate'], reverse=True)
     
     for i, (setup, data) in enumerate(sorted_setups, 1):
@@ -99,11 +102,9 @@ async def stats_months(callback: CallbackQuery):
     
     text = "📊 Статистика по месяцам\n\n"
     
-    # Сортировка по дате
     sorted_months = sorted(months.items())
     
     for month, data in sorted_months:
-        # Название месяца на русском
         month_names = {
             '01': 'Январь', '02': 'Февраль', '03': 'Март',
             '04': 'Апрель', '05': 'Май', '06': 'Июнь',
@@ -182,7 +183,6 @@ async def stats_chart(callback: CallbackQuery):
 async def export_excel(callback: CallbackQuery):
     await callback.message.delete()
     
-    # Проверяем есть ли сделки
     trades = Database.get_all_trades(callback.from_user.id)
     
     if not trades:
@@ -197,13 +197,11 @@ async def export_excel(callback: CallbackQuery):
         "⏳ Генерация Excel файла..."
     )
     
-    # Экспортируем
     excel_file = ExportService.export_to_excel(callback.from_user.id)
     
     if excel_file:
         await callback.message.delete()
         
-        # Отправляем файл
         await callback.message.answer_document(
             BufferedInputFile(
                 excel_file.getvalue(), 

@@ -31,6 +31,9 @@ class Database:
         if user:
             user.current_deposit = deposit
             session.commit()
+            print(f"💰 БД: Депозит обновлен на {deposit} для user_id={user_id}")
+        else:
+            print(f"❌ БД: Пользователь {user_id} не найден!")
         session.close()
     
     @staticmethod
@@ -40,6 +43,7 @@ class Database:
         user = session.query(User).filter_by(user_id=user_id).first()
         deposit = user.current_deposit if user else 0
         session.close()
+        print(f"💰 БД: Текущий депозит = {deposit}")
         return deposit
     
     @staticmethod
@@ -52,6 +56,7 @@ class Database:
             if user.current_deposit == 0:
                 user.current_deposit = deposit
             session.commit()
+            print(f"💰 БД: Начальный депозит установлен на {deposit}")
         session.close()
     
     @staticmethod
@@ -90,6 +95,7 @@ class Database:
         session.commit()
         trade_id = trade.id
         session.close()
+        print(f"📊 БД: Сделка #{trade_id} добавлена: {symbol} {direction} {position_size}$")
         return trade_id
     
     @staticmethod
@@ -105,6 +111,9 @@ class Database:
             if mistake:
                 trade.mistake = mistake
             session.commit()
+            print(f"📊 БД: Сделка #{trade_id} закрыта: result={result}, pnl={pnl}")
+        else:
+            print(f"❌ БД: Сделка #{trade_id} не найдена!")
         session.close()
         return trade
     
@@ -155,36 +164,33 @@ class Database:
         try:
             trade = session.query(Trade).filter_by(id=trade_id).first()
             if trade:
-                # Сохраняем информацию для восстановления
                 user_id = trade.user_id
                 old_deposit = trade.deposit
                 
-                # Если сделка открыта, возвращаем деньги в депозит
                 if trade.status == 'open' and old_deposit is not None:
                     user = session.query(User).filter_by(user_id=user_id).first()
                     if user:
                         user.current_deposit = old_deposit
                         session.commit()
-                        print(f"💰 Депозит восстановлен до {old_deposit}$ для пользователя {user_id}")
+                        print(f"💰 БД: Депозит восстановлен до {old_deposit}$ для пользователя {user_id}")
                 elif trade.status == 'closed' and trade.pnl is not None:
-                    # Если сделка закрыта, откатываем PnL
                     user = session.query(User).filter_by(user_id=user_id).first()
                     if user and old_deposit is not None:
                         user.current_deposit = old_deposit
                         session.commit()
-                        print(f"💰 Депозит восстановлен до {old_deposit}$ для пользователя {user_id} (закрытая сделка)")
+                        print(f"💰 БД: Депозит восстановлен до {old_deposit}$ для пользователя {user_id} (закрытая сделка)")
                 
-                # Удаляем сделку
                 session.delete(trade)
                 session.commit()
                 session.close()
+                print(f"🗑️ БД: Сделка #{trade_id} удалена")
                 return True
             session.close()
             return False
         except Exception as e:
             session.rollback()
             session.close()
-            print(f"❌ Ошибка при удалении сделки: {e}")
+            print(f"❌ БД: Ошибка при удалении сделки: {e}")
             return False
     
     @staticmethod
@@ -222,19 +228,16 @@ class Database:
         
         total_pnl = sum(t.pnl for t in closed_trades if t.pnl is not None)
         
-        # Средняя прибыль/убыток
         profit_trades = [t.pnl for t in closed_trades if t.result == 'profit' and t.pnl is not None]
         loss_trades = [t.pnl for t in closed_trades if t.result == 'loss' and t.pnl is not None]
         
         avg_profit = sum(profit_trades) / len(profit_trades) if profit_trades else 0
         avg_loss = sum(loss_trades) / len(loss_trades) if loss_trades else 0
         
-        # Profit Factor
         gross_profit = sum(p for p in profit_trades)
         gross_loss = abs(sum(l for l in loss_trades)) if loss_trades else 1
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
         
-        # Серии побед/поражений
         max_wins = 0
         max_losses = 0
         current_wins = 0
@@ -371,6 +374,7 @@ class Database:
             if trade.status == 'closed' and trade.pnl is not None:
                 current += trade.pnl
                 history.append(current)
+                print(f"📊 БД: История депозита: {current} (после сделки #{trade.id})")
         
         session.close()
         return history

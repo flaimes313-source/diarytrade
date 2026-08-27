@@ -3,12 +3,13 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
-from config import DATABASE_URL  # <-- ЕДИНСТВЕННЫЙ ИСТОЧНИК
+from config import DATABASE_URL
 
 Base = declarative_base()
 
 class Trade(Base):
     __tablename__ = 'trades'
+    
     id = Column(Integer, primary_key=True)
     user_id = Column(BIGINT, nullable=False)
     date = Column(DateTime, default=datetime.now)
@@ -31,11 +32,15 @@ class Trade(Base):
 
 class User(Base):
     __tablename__ = 'users'
+    
     id = Column(Integer, primary_key=True)
     user_id = Column(BIGINT, unique=True, nullable=False)
+    username = Column(String(100), nullable=True)
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
     initial_deposit = Column(Float, default=0)
     current_deposit = Column(Float, default=0)
-    is_active = Column(Integer, default=1)       # 1 — активен, 0 — заблокировал бота
+    is_active = Column(Integer, default=1)
     last_seen_at = Column(DateTime, nullable=True)
     blocked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)
@@ -46,3 +51,14 @@ Session = sessionmaker(bind=engine)
 
 def get_session():
     return Session()
+
+def get_engine():
+    return engine
+
+def init_db():
+    Base.metadata.create_all(engine)
+    print("✅ Таблицы созданы/проверены")
+
+def drop_db():
+    Base.metadata.drop_all(engine)
+    print("⚠️ Все таблицы удалены")

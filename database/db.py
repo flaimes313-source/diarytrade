@@ -12,17 +12,30 @@ class Database:
     # ============= USER METHODS =============
     
     @staticmethod
-    def get_or_create_user(user_id):
+    def get_or_create_user(user_id, username=None, first_name=None, last_name=None):
         """Получить пользователя или создать нового"""
         session = Session()
         user = session.query(User).filter_by(user_id=user_id).first()
         if not user:
-            user = User(user_id=user_id)
+            user = User(
+                user_id=user_id,
+                username=username,
+                first_name=first_name,
+                last_name=last_name
+            )
             session.add(user)
             session.commit()
-            print(f"✅ Создан новый пользователь: {user_id}")
+            print(f"✅ Создан новый пользователь: {user_id} ({username})")
         else:
-            print(f"👤 Пользователь найден: {user_id}")
+            # Обновляем данные если изменились
+            if username and user.username != username:
+                user.username = username
+            if first_name and user.first_name != first_name:
+                user.first_name = first_name
+            if last_name and user.last_name != last_name:
+                user.last_name = last_name
+            session.commit()
+            print(f"👤 Пользователь найден: {user_id} ({user.username})")
         session.close()
         return user
     
@@ -193,7 +206,6 @@ class Database:
     def delete_trade(trade_id):
         """
         Удалить сделку по ID и пересчитать депозит через сумму PnL всех закрытых сделок.
-        Это правильный способ удаления, так как он не зависит от порядка сделок.
         """
         session = Session()
         try:
@@ -498,7 +510,6 @@ class Database:
             # Пересчитываем депозит
             user = session.query(User).filter_by(user_id=user_id).first()
             if user:
-                # Депозит становится равен начальному депозиту
                 user.current_deposit = user.initial_deposit
                 session.commit()
                 print(f"💰 БД: Депозит сброшен до {user.initial_deposit}")

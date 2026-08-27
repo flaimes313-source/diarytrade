@@ -73,7 +73,12 @@ ensure_screenshots_dir()
 @router.message(Command("start"))
 async def start(message: Message):
     user_id = message.from_user.id
-    Database.get_or_create_user(user_id)
+    username = message.from_user.username
+    first_name = message.from_user.first_name
+    last_name = message.from_user.last_name
+    
+    Database.get_or_create_user(user_id, username, first_name, last_name)
+    Database.mark_user_active(user_id)
     
     open_trades = Database.get_open_trades(user_id)
     
@@ -510,48 +515,3 @@ async def save_trade(message: Message, state: FSMContext, user_id: int):
         )
     
     await state.clear()
-
-# ============= КОМАНДА /mydel - УДАЛЕНИЕ СВОЕЙ СДЕЛКИ =============
-@router.message(Command("mydel"))
-async def delete_my_trade(message: Message):
-    user_id = message.from_user.id
-    
-    parts = message.text.split()
-    if len(parts) < 2:
-        await message.answer(
-            "❌ Укажите ID сделки для удаления\n\n"
-            "Пример: /mydel 5\n\n"
-            "Чтобы узнать ID сделки, посмотрите в /history"
-        )
-        return
-    
-    try:
-        trade_id = int(parts[1])
-    except ValueError:
-        await message.answer("❌ ID должен быть числом")
-        return
-    
-    trade = Database.get_trade_by_id(trade_id)
-    
-    if not trade:
-        await message.answer(f"❌ Сделка с ID {trade_id} не найдена")
-        return
-    
-    if trade.user_id != user_id:
-        await message.answer("⛔ Вы можете удалять только свои сделки!")
-        return
-    
-    if trade.status == 'closed':
-        await message.answer("❌ Нельзя удалить закрытую сделку")
-        return
-    
-    if Database.delete_trade(trade_id):
-        await message.answer(
-            f"✅ Сделка #{trade_id} удалена!\n\n"
-            f"🪙 {trade.symbol}\n"
-            f"📈 {trade.direction}\n"
-            f"💰 {trade.position_size}$\n"
-            f"📅 {trade.date.strftime('%d.%m.%Y')}"
-        )
-    else:
-        await message.answer(f"❌ Ошибка при удалении сделки #{trade_id}")

@@ -170,7 +170,6 @@ async def admin_broadcast_text(message: Message, state: FSMContext):
         await state.clear()
         return
     
-    # Сохраняем текст
     await state.update_data(text=message.text or " ")
     
     await message.answer(
@@ -191,11 +190,9 @@ async def admin_broadcast_skip_photo(callback: CallbackQuery, state: FSMContext)
 async def admin_broadcast_photo(message: Message, state: FSMContext):
     """Получение фото для рассылки"""
     if message.photo:
-        # Сохраняем фото
         photo = message.photo[-1]
         file = await bot.get_file(photo.file_id)
         
-        # Скачиваем во временную папку
         temp_dir = tempfile.gettempdir()
         file_path = os.path.join(temp_dir, f"broadcast_{message.from_user.id}.jpg")
         await bot.download_file(file.file_path, file_path)
@@ -214,7 +211,6 @@ async def show_broadcast_confirm(message: Message, state: FSMContext, user_id: i
     photo_id = data.get('photo_id')
     photo_path = data.get('photo_path')
     
-    # Показываем превью
     if photo_id:
         await message.answer_photo(
             photo_id,
@@ -231,9 +227,10 @@ async def show_broadcast_confirm(message: Message, state: FSMContext, user_id: i
     
     await state.set_state(BroadcastStates.waiting_confirm)
 
+# ============= ОСНОВНАЯ ФУНКЦИЯ РАССЫЛКИ С ОТЛАДКОЙ =============
 @router.callback_query(F.data == "broadcast_confirm")
 async def admin_broadcast_confirm(callback: CallbackQuery, state: FSMContext):
-    """Подтверждение и отправка рассылки"""
+    """Подтверждение и отправка рассылки с отладкой"""
     user_id = callback.from_user.id
     
     if not is_admin(user_id):
@@ -241,20 +238,47 @@ async def admin_broadcast_confirm(callback: CallbackQuery, state: FSMContext):
         return
     
     await callback.message.delete()
-    await callback.message.answer("⏳ Начинаю рассылку...")
     
     data = await state.get_data()
     text = data.get('text', '')
     photo_path = data.get('photo_path')
     
-    # Получаем всех пользователей
+    # 👇 ОТЛАДКА 1: Проверяем пользователей в БД
     users = Database.get_all_users()
+    print(f"👥 Всего пользователей в БД: {len(users)}")
+    for u in users[:10]:  # Выводим первых 10
+        print(f"   🆔 {u.user_id}")
+    if len(users) > 10:
+        print(f"   ... и еще {len(users) - 10} пользователей")
+    
+    # 👇 ОТЛАДКА 2: Проверяем, что текст есть
+    print(f"📝 Текст рассылки: {text[:50]}..." if len(text) > 50 else f"📝 Текст рассылки: {text}")
+    
+    if not users:
+        await callback.message.answer("❌ Нет пользователей в базе данных!", reply_markup=admin_menu())
+        await state.clear()
+        await callback.answer()
+        return
+    
+    # 👇 ОТЛАДКА 3: Тестовое сообщение админу
+    try:
+        await bot.send_message(ADMIN_IDS[0], "📢 Начинаю рассылку...")
+        print("✅ Тестовое сообщение админу отправлено")
+    except Exception as e:
+        print(f"❌ Ошибка отправки тестового сообщения админу: {e}")
+    
     total = len(users)
     sent = 0
     failed = 0
+    blocked = 0
     
-    for user in users:
+    status_msg = await callback.message.answer(
+        f"⏳ Рассылка началась...\n👥 Всего: {total}"
+    )
+    
+    for i, user in enumerate(users):
         try:
+            # 👇 ОТЛАДКА 4: Пытаемся отправить
             if photo_path:
                 await bot.send_photo(
                     user.user_id,
@@ -269,17 +293,46 @@ async def admin_broadcast_confirm(callback: CallbackQuery, state: FSMContext):
                     parse_mode="HTML"
                 )
             sent += 1
+            print(f"✅ Отправлено пользователю {user.user_id}")
+            
+            # Обновляем статус каждые 5 сообщений
+            if i % 5 == 0:
+                await status_msg.edit_text(
+                    f"⏳ Рассылка...\n"
+                    f"👥 Всего: {total}\n"
+                    f"📤 Отправлено: {sent}\n"
+                    f"❌ Ошибок: {failed}\n"
+                    f"🚫 Заблокировали: {blocked}"
+                )
+                
         except Exception as e:
-            failed += 1
+            error_msg = str(e).lower()
+            print(f"❌ Ошибка для {user.user_id}: {e}")
+            
+            if "bot was blocked" in error_msg or "user is deactivated" in error_msg:
+                blocked += 1
+                print(f"   🚫 Пользователь {user.user_id} заблокировал бота")
+            else:
+                failed += 1
+                print(f"   ❌ Другая ошибка: {e}")
     
     # Чистим временный файл
     if photo_path and os.path.exists(photo_path):
         os.remove(photo_path)
+        print("🗑️ Временный файл удален")
     
-    await callback.message.answer(
+    # 👇 ОТЛАДКА 5: Итоговый результат
+    print(f"\n📊 ИТОГ РАССЫЛКИ:")
+    print(f"   📤 Отправлено: {sent}")
+    print(f"   ❌ Ошибок: {failed}")
+    print(f"   🚫 Заблокировали: {blocked}")
+    print(f"   👥 Всего: {total}")
+    
+    await status_msg.edit_text(
         f"✅ **Рассылка завершена!**\n\n"
         f"📤 Отправлено: {sent}\n"
-        f"❌ Не доставлено: {failed}\n"
+        f"❌ Ошибок: {failed}\n"
+        f"🚫 Заблокировали: {blocked}\n"
         f"👥 Всего: {total}",
         reply_markup=admin_menu(),
         parse_mode="HTML"
@@ -324,3 +377,32 @@ def broadcast_confirm_menu():
         [InlineKeyboardButton(text="✅ Отправить", callback_data="broadcast_confirm")],
         [InlineKeyboardButton(text="❌ Отменить", callback_data="broadcast_cancel")]
     ])
+
+# ============= ТЕСТОВАЯ КОМАНДА ДЛЯ ПРОВЕРКИ =============
+@router.message(Command("test_send"))
+async def test_send(message: Message):
+    """Тест отправки сообщения"""
+    user_id = message.from_user.id
+    
+    if not is_admin(user_id):
+        await message.answer("⛔ Только для администраторов!")
+        return
+    
+    try:
+        await message.answer("✅ Бот может отправлять сообщения!")
+        
+        # Проверяем, что можем отправить админу
+        await bot.send_message(ADMIN_IDS[0], "✅ Тестовое сообщение админу от {user_id}!")
+        await message.answer("✅ Тестовое сообщение админу отправлено!")
+        
+        # Показываем список пользователей
+        users = Database.get_all_users()
+        text = f"👥 Пользователей в БД: {len(users)}\n\n"
+        for u in users[:10]:
+            text += f"🆔 {u.user_id}\n"
+        if len(users) > 10:
+            text += f"... и еще {len(users) - 10}"
+        await message.answer(text)
+        
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")

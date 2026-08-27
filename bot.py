@@ -2,32 +2,25 @@
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from config import BOT_TOKEN
-import asyncio
 import logging
-
-from handlers import add_trade, close_trade, stats, history
-from handlers import admin
+from handlers import add_trade, close_trade, stats, history, admin, deposit
 from keyboards import menu
+from services.broadcast import BroadcastService
 
 logging.basicConfig(level=logging.INFO)
 
-# Создаем бота и диспетчер
 bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
 dp = Dispatcher()
 
-# Регистрируем все роутеры
+broadcast_service = BroadcastService(bot)
+admin.set_broadcast_service(broadcast_service)
+
 dp.include_routers(
     add_trade.router,
     close_trade.router,
     stats.router,
     history.router,
     admin.router,
+    deposit.router,
     menu.router
 )
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())

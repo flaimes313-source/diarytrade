@@ -1,7 +1,7 @@
 # database/db.py
 from database.models import Session, Trade, User
 from datetime import datetime, timedelta
-from sqlalchemy import func, and_, BIGINT
+from sqlalchemy import func, and_
 import os
 
 class Database:
@@ -20,6 +20,9 @@ class Database:
             user = User(user_id=user_id)
             session.add(user)
             session.commit()
+            print(f"✅ Создан новый пользователь: {user_id}")
+        else:
+            print(f"👤 Пользователь найден: {user_id}")
         session.close()
         return user
     
@@ -74,6 +77,35 @@ class Database:
         count = session.query(User).count()
         session.close()
         return count
+    
+    @staticmethod
+    def mark_user_blocked(user_id):
+        """Отметить пользователя как заблокировавшего бота"""
+        session = Session()
+        try:
+            user = session.query(User).filter_by(user_id=user_id).first()
+            if user:
+                user.is_active = 0
+                user.blocked_at = datetime.now()
+                session.commit()
+                print(f"🚫 Пользователь {user_id} заблокировал бота")
+        finally:
+            session.close()
+
+    @staticmethod
+    def mark_user_active(user_id):
+        """Отметить пользователя как активного"""
+        session = Session()
+        try:
+            user = session.query(User).filter_by(user_id=user_id).first()
+            if user:
+                user.is_active = 1
+                user.last_seen_at = datetime.now()
+                user.blocked_at = None
+                session.commit()
+                print(f"🟢 Пользователь {user_id} активен")
+        finally:
+            session.close()
     
     # ============= TRADE METHODS =============
     

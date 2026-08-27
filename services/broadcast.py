@@ -3,7 +3,6 @@ import asyncio
 import logging
 from typing import Dict, Any
 from aiogram import Bot
-from aiogram.types import Chat
 from aiogram.exceptions import (
     TelegramForbiddenError,
     TelegramBadRequest,
@@ -30,6 +29,10 @@ class BroadcastService:
             'attempts': 0
         }
 
+        # Проверка текста
+        if not text or text.strip() == "":
+            text = "📢 Сообщение от администратора"
+
         # Проверка chat доступности
         try:
             chat = await self.bot.get_chat(user_id)
@@ -38,6 +41,7 @@ class BroadcastService:
                 return result
         except TelegramForbiddenError:
             result['status'] = 'blocked'
+            Database.mark_user_blocked(user_id)
             return result
         except TelegramBadRequest as e:
             if 'chat not found' in str(e).lower():
@@ -57,16 +61,25 @@ class BroadcastService:
             result['attempts'] = attempt
             try:
                 if photo_path:
-                    await self.bot.send_photo(user_id, photo_path, caption=text, parse_mode="HTML")
+                    await self.bot.send_photo(
+                        user_id,
+                        photo_path,
+                        caption=text
+                    )
                 else:
-                    await self.bot.send_message(user_id, text, parse_mode="HTML")
+                    await self.bot.send_message(
+                        user_id,
+                        text
+                    )
                 result['status'] = 'ok'
                 return result
             except TelegramForbiddenError:
                 result['status'] = 'blocked'
+                Database.mark_user_blocked(user_id)
                 return result
             except TelegramBadRequest as e:
-                if 'chat not found' in str(e).lower():
+                error_msg = str(e).lower()
+                if 'chat not found' in error_msg:
                     result['status'] = 'chat_not_found'
                 else:
                     result['status'] = 'bad_request'
@@ -75,7 +88,7 @@ class BroadcastService:
             except TelegramRetryAfter as e:
                 wait = e.retry_after
                 logger.warning(f"RetryAfter {wait}s для user {user_id}, попытка {attempt}")
-                await asyncio.sleep(wait)
+                await asyncio.sleep(min(wait, 10))
                 continue
             except (TelegramNetworkError, TelegramAPIError) as e:
                 logger.warning(f"Сетевая ошибка для {user_id}: {e}, попытка {attempt}")
@@ -126,8 +139,6 @@ class BroadcastService:
                     report['ok'] += 1
                 elif status == 'blocked':
                     report['blocked'] += 1
-                    # Помечаем пользователя как неактивного
-                    Database.mark_user_blocked(user.user_id)
                 elif status == 'chat_not_found':
                     report['chat_not_found'] += 1
                 elif status == 'bad_request':
@@ -137,8 +148,8 @@ class BroadcastService:
                 else:
                     report['unknown_error'] += 1
 
-                # Защита от флуда
-                if idx % 10 == 0:
+                # Защита от флуда — 0.1 сек между сообщениями
+                if idx % 5 == 0:
                     await asyncio.sleep(0.1)
 
             return report

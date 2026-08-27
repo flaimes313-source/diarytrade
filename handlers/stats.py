@@ -24,13 +24,12 @@ async def stats_callback(callback: CallbackQuery):
 
 async def show_stats(message: Message, user_id: int):
     stats = Database.get_stats(user_id)
-    current_deposit = DepositService.get_current_deposit(user_id)
-    initial_deposit = DepositService.get_initial_deposit(user_id)
+    current_deposit = DepositService.get_current(user_id)
+    initial_deposit = DepositService.get_initial(user_id)
     
     if stats['total'] == 0:
         await message.answer(
-            "📊 Статистика\n\n"
-            "Нет закрытых сделок.",
+            "📊 Статистика\n\nНет закрытых сделок.",
             reply_markup=main_menu()
         )
         return
@@ -55,6 +54,8 @@ async def show_stats(message: Message, user_id: int):
     
     await message.answer(text, reply_markup=stats_menu())
 
+# ============= СТАТИСТИКА ПО СЕТАПАМ =============
+
 @router.callback_query(F.data == "stats_setups")
 async def stats_setups(callback: CallbackQuery):
     await callback.message.delete()
@@ -63,15 +64,13 @@ async def stats_setups(callback: CallbackQuery):
     
     if not setups:
         await callback.message.answer(
-            "📊 Статистика по сетапам\n\n"
-            "Нет данных.",
+            "📊 Статистика по сетапам\n\nНет данных.",
             reply_markup=main_menu()
         )
         await callback.answer()
         return
     
     text = "📊 Статистика по сетапам\n\n"
-    
     sorted_setups = sorted(setups.items(), key=lambda x: x[1]['win_rate'], reverse=True)
     
     for i, (setup, data) in enumerate(sorted_setups, 1):
@@ -86,6 +85,8 @@ async def stats_setups(callback: CallbackQuery):
     await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
+# ============= СТАТИСТИКА ПО МЕСЯЦАМ =============
+
 @router.callback_query(F.data == "stats_months")
 async def stats_months(callback: CallbackQuery):
     await callback.message.delete()
@@ -94,24 +95,21 @@ async def stats_months(callback: CallbackQuery):
     
     if not months:
         await callback.message.answer(
-            "📊 Статистика по месяцам\n\n"
-            "Нет данных.",
+            "📊 Статистика по месяцам\n\nНет данных.",
             reply_markup=main_menu()
         )
         await callback.answer()
         return
     
     text = "📊 Статистика по месяцам\n\n"
+    month_names = {
+        '01': 'Январь', '02': 'Февраль', '03': 'Март',
+        '04': 'Апрель', '05': 'Май', '06': 'Июнь',
+        '07': 'Июль', '08': 'Август', '09': 'Сентябрь',
+        '10': 'Октябрь', '11': 'Ноябрь', '12': 'Декабрь'
+    }
     
-    sorted_months = sorted(months.items())
-    
-    for month, data in sorted_months:
-        month_names = {
-            '01': 'Январь', '02': 'Февраль', '03': 'Март',
-            '04': 'Апрель', '05': 'Май', '06': 'Июнь',
-            '07': 'Июль', '08': 'Август', '09': 'Сентябрь',
-            '10': 'Октябрь', '11': 'Ноябрь', '12': 'Декабрь'
-        }
+    for month, data in sorted(months.items()):
         month_parts = month.split('-')
         month_name = month_names.get(month_parts[1], month_parts[1])
         
@@ -127,6 +125,8 @@ async def stats_months(callback: CallbackQuery):
     await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
+# ============= СТАТИСТИКА ПО МОНЕТАМ =============
+
 @router.callback_query(F.data == "stats_symbols")
 async def stats_symbols(callback: CallbackQuery):
     await callback.message.delete()
@@ -135,8 +135,7 @@ async def stats_symbols(callback: CallbackQuery):
     
     if not symbols:
         await callback.message.answer(
-            "📊 Статистика по монетам\n\n"
-            "Нет данных.",
+            "📊 Статистика по монетам\n\nНет данных.",
             reply_markup=main_menu()
         )
         await callback.answer()
@@ -150,16 +149,17 @@ async def stats_symbols(callback: CallbackQuery):
     await callback.message.answer(text, reply_markup=stats_menu())
     await callback.answer()
 
+# ============= ГРАФИК ДЕПОЗИТА =============
+
 @router.callback_query(F.data == "stats_chart")
 async def stats_chart(callback: CallbackQuery):
     await callback.message.delete()
     
-    history = DepositService.get_deposit_history(callback.from_user.id)
+    history = Database.get_deposit_history(callback.from_user.id)
     
     if len(history) < 2:
         await callback.message.answer(
-            "📊 График депозита\n\n"
-            "Недостаточно данных для построения графика.",
+            "📊 График депозита\n\nНедостаточно данных для построения графика.",
             reply_markup=main_menu()
         )
         await callback.answer()
@@ -177,6 +177,8 @@ async def stats_chart(callback: CallbackQuery):
         )
     
     await callback.answer()
+
+# ============= ЭКСПОРТ В EXCEL =============
 
 @router.callback_query(F.data == "export_excel")
 async def export_excel(callback: CallbackQuery):
@@ -239,9 +241,10 @@ async def export_template(callback: CallbackQuery):
     
     await callback.answer()
 
+# ============= ОЧИСТКА СТАТИСТИКИ =============
+
 @router.callback_query(F.data == "clear_stats")
 async def clear_stats(callback: CallbackQuery):
-    """Запрос подтверждения очистки статистики"""
     user_id = callback.from_user.id
     
     trades = Database.get_all_trades(user_id)
@@ -268,15 +271,11 @@ async def clear_stats(callback: CallbackQuery):
 
 @router.callback_query(F.data == "confirm_clear_stats")
 async def confirm_clear_stats(callback: CallbackQuery):
-    """Подтверждение очистки статистики"""
     user_id = callback.from_user.id
     
-    # Удаляем все закрытые сделки
     deleted_count = Database.clear_closed_trades(user_id)
-    
-    # Пересчитываем депозит
-    new_deposit = DepositService.recalculate_deposit(user_id)
-    initial_deposit = DepositService.get_initial_deposit(user_id)
+    new_deposit = DepositService.recalculate(user_id)
+    initial_deposit = DepositService.get_initial(user_id)
     
     await callback.message.delete()
     await callback.message.answer(
@@ -288,17 +287,17 @@ async def confirm_clear_stats(callback: CallbackQuery):
     )
     await callback.answer()
 
+# ============= АНАЛИЗ ОШИБОК =============
+
 @router.callback_query(F.data == "stats_mistakes")
 async def stats_mistakes(callback: CallbackQuery):
-    """Статистика по ошибкам"""
     await callback.message.delete()
     
     mistakes = Database.get_mistakes_stats(callback.from_user.id)
     
     if not mistakes:
         await callback.message.answer(
-            "🧠 Анализ ошибок\n\n"
-            "Нет данных об ошибках.",
+            "🧠 Анализ ошибок\n\nНет данных об ошибках.",
             reply_markup=stats_menu()
         )
         await callback.answer()
